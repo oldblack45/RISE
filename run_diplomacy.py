@@ -18,7 +18,7 @@ from simulation.diplomacy.tournament import TournamentConfig, run_tournament
 
 
 # 直接在此修改配置
-GAMES = 1
+GAMES = 20
 ROUNDS_PER_GAME = 20
 MAX_YEAR = 1910
 # 每次运行生成独立目录，避免相互覆盖
