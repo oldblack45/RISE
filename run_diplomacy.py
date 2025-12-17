@@ -1,11 +1,12 @@
-"""
-一键运行 Diplomacy 锦标赛（直接改代码即可，无需命令行参数/环境变量）。
+"""一键运行 Diplomacy 锦标赛。
 
-修改以下常量即可：
-  GAMES           比赛局数
-  ROUNDS_PER_GAME 每局最大回合数
-  MAX_YEAR        最晚结束年份
-  OUTPUT_DIR      输出目录
+无需命令行参数/环境变量，直接改代码即可。
+
+本文件提供两个“运行入口”：
+    - RQ3/常规：单配置跑锦标赛（保留旧入口行为）
+    - RQ4/消融：Full + 3 个消融变体，每个变体跑若干局，并汇总输出 RQ4_Ablation.csv
+
+通过 RUN_MODE 选择运行模式。
 """
 
 import asyncio
@@ -18,12 +19,39 @@ from simulation.diplomacy.tournament import TournamentConfig, run_tournament
 
 
 # 直接在此修改配置
+RUN_MODE = "RQ4"  # "RQ3" 或 "RQ4"
+
+# RQ3（常规）
 GAMES = 20
+
+# RQ4（消融）
+GAMES_PER_VARIANT = 10
 ROUNDS_PER_GAME = 20
 MAX_YEAR = 1910
 # 每次运行生成独立目录，避免相互覆盖
 _ts = datetime.now().strftime("%Y%m%d_%H%M%S")
 OUTPUT_DIR = Path(f"experiments/diplomacy_tournament_{_ts}")
+
+
+# RQ4 variants (Full + Ablations)
+VARIANTS = [
+    (
+        "Full_Model",
+        dict(enable_profiling=True, enable_prediction=True, enable_risk_gate=True),
+    ),
+    (
+        "w/o_Observe",
+        dict(enable_profiling=False, enable_prediction=True, enable_risk_gate=True),
+    ),
+    (
+        "w/o_Orient",
+        dict(enable_profiling=True, enable_prediction=False, enable_risk_gate=True),
+    ),
+    (
+        "w/o_Decide",
+        dict(enable_profiling=True, enable_prediction=True, enable_risk_gate=False),
+    ),
+]
 
 
 class _TeeIO:
@@ -47,6 +75,33 @@ class _TeeIO:
                 pass
 
 
+async def _run_rq3_single() -> None:
+    cfg = TournamentConfig(
+        games=GAMES,
+        rounds_per_game=ROUNDS_PER_GAME,
+        max_year=MAX_YEAR,
+        output_dir=OUTPUT_DIR,
+    )
+    await run_tournament(cfg)
+
+
+async def _run_rq4_all_variants() -> None:
+    shared_rq4 = OUTPUT_DIR / "RQ4_Ablation.csv"
+    for variant_name, flags in VARIANTS:
+        variant_dir = OUTPUT_DIR / variant_name
+        cfg = TournamentConfig(
+            games=GAMES_PER_VARIANT,
+            rounds_per_game=ROUNDS_PER_GAME,
+            max_year=MAX_YEAR,
+            output_dir=variant_dir,
+            configuration=variant_name,
+            rq4_path=shared_rq4,
+            **flags,
+        )
+        print(f"\n[系统] 开始 RQ4 配置={variant_name} 局数={GAMES_PER_VARIANT} 输出目录={variant_dir}")
+        await run_tournament(cfg)
+
+
 def main() -> None:
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     # 让 LLMAgent 将 trace 直接打印到控制台（由 console_output.log 捕获）
@@ -58,13 +113,10 @@ def main() -> None:
         sys.stdout = _TeeIO(old_out, f)
         sys.stderr = _TeeIO(old_err, f)
         try:
-            cfg = TournamentConfig(
-                games=GAMES,
-                rounds_per_game=ROUNDS_PER_GAME,
-                max_year=MAX_YEAR,
-                output_dir=OUTPUT_DIR,
-            )
-            asyncio.run(run_tournament(cfg))
+            if RUN_MODE.upper() == "RQ3":
+                asyncio.run(_run_rq3_single())
+            else:
+                asyncio.run(_run_rq4_all_variants())
         finally:
             sys.stdout = old_out
             sys.stderr = old_err

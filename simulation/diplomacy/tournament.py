@@ -36,6 +36,14 @@ class TournamentConfig:
     max_year: int = 1910
     rounds_per_game: int = 20
     output_dir: Path = Path("experiments/diplomacy_tournament")
+    # RQ4 Ablation
+    configuration: str = ""
+    enable_profiling: bool = True
+    enable_prediction: bool = True
+    enable_risk_gate: bool = True
+    # If provided, RQ4 rows will be appended to this CSV (can be shared across variants).
+    # Leave None to disable RQ4 logging for legacy runs.
+    rq4_path: Optional[Path] = None
 
 
 # ---------------------------------------------------------------------------
@@ -54,6 +62,7 @@ class DiplomacyTournamentRunner:
         self.rq2_path = self.config.output_dir / "RQ2_Evolution.csv"
         self.rq3_path = self.config.output_dir / "RQ3_Performance.csv"
         self.turn_log_path = self.config.output_dir / "Turn_Log.csv"
+        self.rq4_path = self.config.rq4_path
         self._init_csv_logs()
 
     def _init_csv_logs(self) -> None:
@@ -75,6 +84,16 @@ class DiplomacyTournamentRunner:
                 "SupplyCenters",
             ])
 
+        # RQ4: append-friendly (shared file across variants)
+        if self.rq4_path is not None:
+            try:
+                if not self.rq4_path.exists():
+                    self.rq4_path.parent.mkdir(parents=True, exist_ok=True)
+                    with open(self.rq4_path, "w", newline="", encoding="utf-8") as f:
+                        csv.writer(f).writerow(["Configuration", "GameID", "Final_SC", "Survived", "Is_Winner"])
+            except Exception:
+                pass
+
     def _append_warning(self, game_id: int, round_no: int, country: str, baseline_type: str, stage: str, error: str) -> None:
         msg = f"[LLM警告] 第{game_id}局 第{round_no}轮 {country}({baseline_type}) 阶段={stage} 错误={error}"
         print(msg)
@@ -95,6 +114,9 @@ class DiplomacyTournamentRunner:
             game_attributes={"max_rounds": self.config.rounds_per_game},
             experiment_logger=None,
             meta_goal="Maximize national interest and ensure survival",
+            enable_profiling=self.config.enable_profiling,
+            enable_prediction=self.config.enable_prediction,
+            enable_risk_gate=self.config.enable_risk_gate,
             # llm_model=DEFAULT_MAGES_LLM_MODEL,
         )
         baselines = self._spawn_baselines()
@@ -205,7 +227,28 @@ class DiplomacyTournamentRunner:
                 break
 
         await self._log_rq3(game_id, game, baselines)
+        self._append_rq4(game_id, game, baselines)
         self._sys_log(f"第{game_id}局结束：最终补给中心={self._count_supply_centers(game)}")
+
+    def _append_rq4(self, game_id: int, game: Any, baselines: Dict[str, BaselineAgent]) -> None:
+        if self.rq4_path is None:
+            return
+        sc_map = self._count_supply_centers(game)
+        england_sc = int(sc_map.get("England", 0))
+        survived = england_sc > 0
+        winner = max(sc_map.items(), key=lambda item: item[1])[0] if sc_map else "Unknown"
+        is_winner = winner == "England"
+        try:
+            with open(self.rq4_path, "a", newline="", encoding="utf-8") as f:
+                csv.writer(f).writerow([
+                    self.config.configuration,
+                    game_id,
+                    england_sc,
+                    bool(survived),
+                    bool(is_winner),
+                ])
+        except Exception:
+            pass
 
     def _spawn_baselines(self) -> Dict[str, BaselineAgent]:
         agents: Dict[str, BaselineAgent] = {}

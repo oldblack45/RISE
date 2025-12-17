@@ -58,6 +58,9 @@ class MAGESAgent(LLMAgent):
         meta_goal: str = "Ensure survival and maximize national interest",
         adaptation_rate: float = 0.65,
         use_llm_reasoner: bool = False,
+        enable_profiling: bool = True,
+        enable_prediction: bool = True,
+        enable_risk_gate: bool = True,
     ):
         super().__init__(
             agent_name=f"MAGES_{country_name}",
@@ -72,6 +75,14 @@ class MAGESAgent(LLMAgent):
         self.meta_goal = meta_goal
         self.adapter = adaptation_rate
         self.use_llm_reasoner = use_llm_reasoner
+
+        # Ablation switches (RQ4)
+        # - enable_profiling: whether to update/use opponent profiling (Observe)
+        # - enable_prediction: whether to run Predict/Orient step (Orient)
+        # - enable_risk_gate: whether to apply deviation risk gate (Decide)
+        self.enable_profiling = bool(enable_profiling)
+        self.enable_prediction = bool(enable_prediction)
+        self.enable_risk_gate = bool(enable_risk_gate)
 
         self.world_model = EvolutionaryCounts(adaptation_rate)
         self.profile_tables: Dict[str, EvolutionaryCounts] = {
@@ -126,31 +137,49 @@ class MAGESAgent(LLMAgent):
             })
 
         # 对手经验/策略：一次性批量 LLM 调用（避免逐对手多次调用）
-        opponents_to_update: List[str] = [o for o in self.other_countries if o in last_orders]
-        for opponent in opponents_to_update:
-            action = last_orders[opponent]
-            self.profile_tables[opponent].update("GLOBAL", action)
-            summary = f"R{self.meta_state['round']-1}: {opponent} executed {action}"
-            self.profile_notes[opponent].append(summary)
-
-        if opponents_to_update:
-            batch = self._llm_batch_infer_opponents(opponents_to_update, last_orders, last_feedback)
+        # RQ4 w/o Observe：禁用画像时，不更新任何对手画像信息（等价“脸盲”）。
+        if self.enable_profiling:
+            opponents_to_update: List[str] = [o for o in self.other_countries if o in last_orders]
             for opponent in opponents_to_update:
-                rec = batch.get(opponent)
-                if not isinstance(rec, dict):
-                    continue
-                strategy = rec.get("strategy")
-                experience = rec.get("experience")
-                if isinstance(strategy, str) and strategy.strip():
-                    self.opponent_latent_strategy[opponent] = strategy.strip()
-                if isinstance(experience, str) and experience.strip():
-                    # 作为对手画像的“经验片段”写入 notes，供后续证据与摘要使用
-                    self.profile_notes[opponent].append(f"LLM经验: {experience.strip()}")
+                action = last_orders[opponent]
+                self.profile_tables[opponent].update("GLOBAL", action)
+                summary = f"R{self.meta_state['round']-1}: {opponent} executed {action}"
+                self.profile_notes[opponent].append(summary)
+
+            if opponents_to_update:
+                batch = self._llm_batch_infer_opponents(opponents_to_update, last_orders, last_feedback)
+                for opponent in opponents_to_update:
+                    rec = batch.get(opponent)
+                    if not isinstance(rec, dict):
+                        continue
+                    strategy = rec.get("strategy")
+                    experience = rec.get("experience")
+                    if isinstance(strategy, str) and strategy.strip():
+                        self.opponent_latent_strategy[opponent] = strategy.strip()
+                    if isinstance(experience, str) and experience.strip():
+                        # 作为对手画像的“经验片段”写入 notes，供后续证据与摘要使用
+                        self.profile_notes[opponent].append(f"LLM经验: {experience.strip()}")
         return {
             "last_orders": last_orders,
             "last_feedback": last_feedback,
             "tension": self.meta_state.get("tension", 0.0),
         }
+
+    def _trust_score(self, opponent: str) -> float:
+        """对手信任度（0-1）。
+
+        RQ4 w/o Observe：当 enable_profiling=False 时强制返回 0.5（中立）。
+        默认：用画像里“攻击/支援攻击”的概率做一个简单映射。
+        """
+        if not self.enable_profiling:
+            return 0.5
+        try:
+            dist = self.profile_tables.get(opponent).distribution("GLOBAL", self.available_actions)  # type: ignore
+            aggressive = float(dist.get("ATTACK", 0.0)) + float(dist.get("SUPPORT_ATTACK", 0.0))
+            # aggressive 越高信任越低
+            return max(0.0, min(1.0, 1.0 - aggressive))
+        except Exception:
+            return 0.5
 
     def _llm_batch_infer_opponents(
         self,
@@ -218,14 +247,36 @@ class MAGESAgent(LLMAgent):
 
     # ------------------------------------------------------------------ Orient
     def orient(self, round_context: Dict[str, Any]) -> Dict[str, Any]:
+        # RQ4 w/o Orient：跳过预测与未来状态推演，退化为“直接看地图 -> 让 LLM 给高层意图”。
+        if not self.enable_prediction:
+            reflection = self._goal_anchored_reflection(round_context)
+            strategy_text = self._llm_evolve_strategy(reflection, [])
+            orient_state = {
+                "predictions": [],
+                "reflection": reflection,
+                "strategy": strategy_text,
+                "candidate_actions": list(self.available_actions),
+                "predicted_states": {},
+            }
+            self.prediction_cache[round_context.get("round", 0)] = []
+            return orient_state
+
         personas = round_context.get("personas", {})
         predictions: List[PredictionRecord] = []
         for opponent in self.other_countries:
-            persona_hint = personas.get(opponent, "Unknown")
-            if (not persona_hint or persona_hint == "Unknown") and self.opponent_latent_strategy.get(opponent):
-                persona_hint = self.opponent_latent_strategy[opponent]
+            # RQ4 w/o Observe：禁用画像时不使用任何 persona/策略线索，避免“偷看对手类型”。
+            if self.enable_profiling:
+                persona_hint = personas.get(opponent, "Unknown")
+                if (not persona_hint or persona_hint == "Unknown") and self.opponent_latent_strategy.get(opponent):
+                    persona_hint = self.opponent_latent_strategy[opponent]
+            else:
+                persona_hint = "Unknown"
             
-            dist = self.profile_tables[opponent].distribution("GLOBAL", self.available_actions)
+            # RQ4 w/o Observe：画像禁用时等价“中立+无历史”，分布使用均匀分布。
+            if self.enable_profiling:
+                dist = self.profile_tables[opponent].distribution("GLOBAL", self.available_actions)
+            else:
+                dist = {a: 1.0 / len(self.available_actions) for a in self.available_actions}
             bias = self._persona_bias(persona_hint)
             scored = {
                 action: dist.get(action, 1.0 / len(self.available_actions)) + bias.get(action, 0.0)
@@ -233,7 +284,7 @@ class MAGESAgent(LLMAgent):
             }
             predicted_action = max(scored.items(), key=lambda item: item[1])[0]
             confidence = self._normalize_confidence(scored[predicted_action], scored.values())
-            evidence = ", ".join(list(self.profile_notes[opponent])[-2:])
+            evidence = ", ".join(list(self.profile_notes[opponent])[-2:]) if self.enable_profiling else "Neutral (profiling disabled)"
             predictions.append(
                 PredictionRecord(
                     target=opponent,
@@ -281,13 +332,56 @@ class MAGESAgent(LLMAgent):
         predicted_states = orient_state.get("predicted_states", {})
         strategy_text = orient_state.get("strategy", self.current_strategy)
 
+        # RQ4 w/o Orient：直接基于地图/合法orders，让 LLM 选一个高层动作（退化成 ReAct 风格）。
+        if not self.enable_prediction:
+            best_action = self._llm_pick_action_from_map(round_context, strategy_text)
+            if best_action not in candidate_actions:
+                best_action = "HOLD"
+            decision: Dict[str, Any] = {
+                "selected_action": best_action,
+                "utility": 0.5,
+                "scores": {str(a): 0.0 for a in candidate_actions},
+                "predictions": predictions,
+                "llm_scores": {},
+            }
+            legal_orders_by_loc = round_context.get("legal_orders_by_loc")
+            game_state = round_context.get("game_state")
+            if isinstance(legal_orders_by_loc, dict) and isinstance(game_state, dict):
+                try:
+                    concrete = self.propose_legal_orders(
+                        round_context=round_context,
+                        game_state=game_state,
+                        legal_orders_by_loc=legal_orders_by_loc,
+                        high_level_action=best_action,
+                        strategy_text=strategy_text,
+                    )
+                    if isinstance(concrete, list):
+                        decision["concrete_orders"] = concrete
+                except Exception as e:
+                    decision["concrete_orders_error"] = repr(e)
+            return decision
+
         llm_scores = self._llm_score_actions(strategy_text, predicted_states)
         scores: Dict[str, float] = {}
+        deviations: Dict[str, float] = {}
         for action in candidate_actions:
             align = llm_scores.get(action, {}).get("align", self._strategy_alignment(action))
             dev = llm_scores.get(action, {}).get("deviation", 0.5)
-            scores[action] = align * (1.0 - dev)
+            # RQ4 w/o Decide：移除 S_dev 风险惩罚，按 align 贪婪选择。
+            if self.enable_risk_gate:
+                scores[action] = align * (1.0 - dev)
+            else:
+                scores[action] = float(align)
+            deviations[action] = float(dev)
         best_action = max(scores.items(), key=lambda kv: kv[1])[0]
+
+        # RQ4 Decide gate：若 deviation 过高则改为更保守的动作。
+        if self.enable_risk_gate:
+            best_dev = float(deviations.get(best_action, 0.5))
+            if best_dev >= 0.60:
+                # 选“最小风险”动作（用预测攻击强度 + 动作类型启发式）
+                safest = min(candidate_actions, key=lambda a: self._risk_eval(str(a), predictions))
+                best_action = str(safest)
         decision: Dict[str, Any] = {
             "selected_action": best_action,
             "utility": scores[best_action],
@@ -313,6 +407,36 @@ class MAGESAgent(LLMAgent):
             except Exception as e:
                 decision["concrete_orders_error"] = repr(e)
         return decision
+
+    def _llm_pick_action_from_map(self, round_context: Dict[str, Any], strategy_text: str) -> str:
+        """在没有预测/推演的情况下，让 LLM 直接从地图信息选一个高层动作。"""
+        try:
+            game_state = round_context.get("game_state")
+            legal_orders_by_loc = round_context.get("legal_orders_by_loc")
+            prompt = (
+                "你是 Diplomacy(无外交) 的英国(ENGLAND)指挥官。\n"
+                "请基于地图状态与我方可用合法 orders，选择一个高层动作类型。\n"
+                "可选动作: {actions}\n"
+                "当前策略(可参考): {strategy}\n"
+                "元目标: {goal}\n"
+                "游戏状态(game_state): {state}\n"
+                "我方合法orders(legal_orders_by_loc): {legal}\n\n"
+                "你必须严格输出 JSON：{\"action\": \"HOLD/MOVE/ATTACK/SUPPORT_ATTACK/SUPPORT_DEFEND/RETREAT\"}\n"
+                "不要输出除 JSON 外的任何文本。"
+            )
+            resp = self.get_response(prompt, input_param_dict={
+                "actions": list(self.available_actions),
+                "strategy": strategy_text,
+                "goal": self.meta_goal,
+                "state": game_state,
+                "legal": legal_orders_by_loc,
+            }, flag_debug_print=False)
+            action = resp.get("action") if isinstance(resp, dict) else None
+            if isinstance(action, str) and action in self.available_actions:
+                return action
+        except Exception:
+            pass
+        return "HOLD"
 
     # ------------------------------------------------------------------ Act
     def act(self, decision: Dict[str, Any]) -> str:

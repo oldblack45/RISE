@@ -270,6 +270,17 @@ class LLMAgent:
             except Exception as e:
                 print(e)
                 raise Exception(f'LLMAgent.llm_model ({self.llm_model}) is not allowed')
+        elif self.llm_model in OLLAMA_MODEL_LIST['think']:
+            try:
+                # Ollama 本地模型（优先）
+                from langchain_community.chat_models.ollama import ChatOllama  # type: ignore
+                model = ChatOllama(model=self.llm_model)
+            except Exception:
+                # 兜底：当 Ollama chat model 不可用时，尝试走 OpenAI-compatible 接口
+                model = ChatOpenAI(
+                    model=self.llm_model,
+                )
+
         else:
             try:
                 model = ChatOpenAI(

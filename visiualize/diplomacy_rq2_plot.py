@@ -26,36 +26,64 @@ def main() -> None:
     latest_folder = find_latest_experiment_folder(project_root)
 
     df = pd.read_csv(os.path.join(latest_folder, 'RQ2_Evolution.csv'))
-    # Calculate average accuracy per round (Global)
-    global_acc = df.groupby('Round')['Prediction_Accuracy'].mean().reset_index()
-    global_acc['Target_Persona'] = 'Global Average'
+    # 2. 设置学术风格 (Seaborn + Matplotlib)
+    sns.set_context("paper", font_scale=1.5)
+    sns.set_style("ticks")
+    plt.rcParams["font.family"] = "serif" # 使用衬线字体 (Times New Roman风格)
 
-    # Calculate average accuracy per round per Persona
-    persona_acc = df.groupby(['Round', 'Target_Persona'])['Prediction_Accuracy'].mean().reset_index()
+    fig, ax = plt.subplots(figsize=(10, 6))
 
-    # Combine for plotting if needed, or just plot separately
-    # Plotting
-    plt.figure(figsize=(10, 6))
-    sns.set_style("whitegrid")
+    # 3. 绘制随机猜测基准线 (Random Guess Baseline)
+    ax.axhline(y=0.33, color='gray', linestyle='--', linewidth=1.5, alpha=0.8, label='Random Baseline (33%)')
 
-    # Plot Global Average with a thicker line
-    sns.lineplot(data=global_acc, x='Round', y='Prediction_Accuracy', 
-                color='red', linewidth=3, label='Global Average')
+    # 4. 绘制不同对手的细线 (Fade out)
+    # 这一步是为了展示 Robustness，但颜色要淡，不要抢戏
+    personas = df['Target_Persona'].unique()
+    palette = sns.color_palette("husl", len(personas))
 
-    # Plot individual Personas with thinner lines / different styles
-    sns.lineplot(data=persona_acc, x='Round', y='Prediction_Accuracy', hue='Target_Persona', 
-                style='Target_Persona', markers=True, dashes=False, linewidth=1.5, alpha=0.7)
+    for i, persona in enumerate(personas):
+        subset = df[df['Target_Persona'] == persona]
+        # 计算每轮的平均值（因为可能有多个 GameID）
+        mean_line = subset.groupby('Round')['Prediction_Accuracy'].mean()
+        ax.plot(mean_line.index, mean_line.values, 
+                color=palette[i], alpha=0.3, linewidth=1, linestyle='-', label=f'vs {persona}')
 
-    plt.title('Cognitive Evolution: Prediction Accuracy over Time', fontsize=14)
-    plt.xlabel('Game Rounds', fontsize=12)
-    plt.ylabel('Prediction Accuracy', fontsize=12)
-    plt.ylim(0, 1.05)
-    plt.legend(title='Opponent Architecture')
-    plt.grid(True, linestyle='--', alpha=0.7)
+    # 5. 绘制全局平均线 (The Hero Line) - 带置信区间
+    # Seaborn 的 lineplot 默认会画出 95% 置信区间 (阴影部分)
+    sns.lineplot(data=df, x='Round', y='Prediction_Accuracy', 
+                color='#C0392B', linewidth=3, errorbar=('ci', 95), label='MAGES (Global Avg.)', ax=ax)
 
-    # Save the plot to a file
+    # 6. 添加阶段标注 (Phase Annotation) - 最关键的叙事部分
+    # Phase 1: Exploration
+    ax.axvspan(1, 4, color='gray', alpha=0.1)
+    ax.text(2.5, 0.95, 'Exploration', ha='center', va='top', fontsize=12, fontweight='bold', color='#555')
+
+    # Phase 2: Rapid Learning
+    ax.axvspan(4, 12, color='#F39C12', alpha=0.1)
+    ax.text(8, 0.95, 'Rapid Learning', ha='center', va='top', fontsize=12, fontweight='bold', color='#D35400')
+
+    # Phase 3: Convergence
+    ax.axvspan(12, 20, color='#27AE60', alpha=0.1)
+    ax.text(16, 0.95, 'Convergence', ha='center', va='top', fontsize=12, fontweight='bold', color='#1E8449')
+
+    # 7. 美化坐标轴与图例
+    ax.set_xlabel('Game Rounds', fontsize=14, fontweight='bold')
+    ax.set_ylabel('Prediction Accuracy', fontsize=14, fontweight='bold')
+    ax.set_ylim(0, 1.05)
+    ax.set_xlim(1, 20)
+
+    # 优化图例：把 MAGES 放在最前面
+    handles, labels = ax.get_legend_handles_labels()
+    # 重排图例顺序，让 Global Avg 在第一位
+    order = [-1] + list(range(len(labels)-2)) + [-2] # Adjust index based on labels
+    # 简单起见，直接重新定位
+    ax.legend(loc='lower right', frameon=True, framealpha=0.9, shadow=True)
+
+    # 去掉上方和右侧的边框 (Spines)
+    sns.despine()
+
     plt.tight_layout()
-    plt.savefig('rq2_evolution_chart.png', dpi=300, bbox_inches='tight')
+    plt.savefig('rq2_academic_style.png', dpi=300)
     plt.show()
 
 
