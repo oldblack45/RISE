@@ -36,6 +36,8 @@ class TournamentConfig:
     max_year: int = 1910
     rounds_per_game: int = 20
     output_dir: Path = Path("experiments/diplomacy_tournament")
+    # Model
+    llm_model: Optional[str] = None
     # RQ4 Ablation
     configuration: str = ""
     enable_profiling: bool = True
@@ -114,6 +116,7 @@ class DiplomacyTournamentRunner:
             game_attributes={"max_rounds": self.config.rounds_per_game},
             experiment_logger=None,
             meta_goal="Maximize national interest and ensure survival",
+            llm_model=self.config.llm_model,
             enable_profiling=self.config.enable_profiling,
             enable_prediction=self.config.enable_prediction,
             enable_risk_gate=self.config.enable_risk_gate,
@@ -257,11 +260,11 @@ class DiplomacyTournamentRunner:
                 continue
             baseline_type = random.choice(BASELINE_TYPES)
             if baseline_type == "ReAct":
-                agents[player] = ReActBaselineAgent(player)
+                agents[player] = ReActBaselineAgent(player, llm_model=self.config.llm_model)
             elif baseline_type == "Reflexion":
-                agents[player] = ReflexionBaselineAgent(player)
+                agents[player] = ReflexionBaselineAgent(player, llm_model=self.config.llm_model)
             else:
-                agents[player] = EvoBaselineAgent(player)
+                agents[player] = EvoBaselineAgent(player, llm_model=self.config.llm_model)
         return agents
 
     async def _gather_orders(

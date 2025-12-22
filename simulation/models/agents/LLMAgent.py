@@ -5,6 +5,8 @@ from contextvars import ContextVar
 from contextlib import contextmanager
 import threading
 
+from langchain_ollama.llms import OllamaLLM
+
 from langchain_community.chat_message_histories import SQLChatMessageHistory
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder, PromptTemplate
 from langchain_core.output_parsers import StrOutputParser, JsonOutputParser
@@ -150,7 +152,7 @@ OLLAMA_MODEL_LIST = {
     'nothink': []
 }
 # vllm模型白名单
-VLLM_Model_List = ["gemma3:27b-q8","qwen3-235b-a22b:q4",]
+VLLM_Model_List = ["gemma3:27b-q8","qwen3-235b-a22b:q4","gpt-oss-20b"]
 
 class LLMAgent:
     # 构造参数：
@@ -270,16 +272,21 @@ class LLMAgent:
             except Exception as e:
                 print(e)
                 raise Exception(f'LLMAgent.llm_model ({self.llm_model}) is not allowed')
-        elif self.llm_model in OLLAMA_MODEL_LIST['think']:
+        elif self.llm_model == 'gpt-oss:20b':
             try:
-                # Ollama 本地模型（优先）
-                from langchain_community.chat_models.ollama import ChatOllama  # type: ignore
-                model = ChatOllama(model=self.llm_model)
-            except Exception:
-                # 兜底：当 Ollama chat model 不可用时，尝试走 OpenAI-compatible 接口
+                print(f'Your Model is VLLM {self.llm_model}')
+                os.environ["OPENAI_API_KEY"] = "1"
+                os.environ["OPENAI_BASE_URL"] = "http://127.0.0.1:8502/v1"
                 model = ChatOpenAI(
                     model=self.llm_model,
                 )
+            except Exception as e:
+                print(e)
+                raise Exception(f'LLMAgent.llm_model ({self.llm_model}) is not allowed')
+        elif self.llm_model in OLLAMA_MODEL_LIST['think']:
+            print(f'Using Model: Ollama {self.llm_model}')
+            # 初始化模型接口
+            model = OllamaLLM(model=self.llm_model)
 
         else:
             try:
@@ -361,8 +368,8 @@ class LLMAgent:
                     print(f"[LLM警告] agent={self.agent_name} model={self.llm_model} stage={ctx.get('stage','')} error={repr(e)}")
                     return e
 
-        if self.llm_model in OLLAMA_MODEL_LIST['think']:
-            return result, think
+        if self.llm_model in OLLAMA_MODEL_LIST['think']:  
+            return result
         else:
             return result
 

@@ -19,7 +19,7 @@ from simulation.diplomacy.tournament import TournamentConfig, run_tournament
 
 
 # 直接在此修改配置
-RUN_MODE = "RQ4"  # "RQ3" 或 "RQ4"
+RUN_MODE = "RQ4"  # "RQ3" / "RQ4" / "RQ3_MODELS"
 
 # RQ3（常规）
 GAMES = 20
@@ -31,6 +31,23 @@ MAX_YEAR = 1910
 # 每次运行生成独立目录，避免相互覆盖
 _ts = datetime.now().strftime("%Y%m%d_%H%M%S")
 OUTPUT_DIR = Path(f"experiments/diplomacy_tournament_{_ts}")
+
+
+MODEL_GROUPS = [
+    "gemma3:27b-q8",
+    "gpt-oss:20b",
+    "qwen3-235b-a22b:q4",
+]
+
+
+def _safe_dir_name(name: str) -> str:
+    out = []
+    for ch in str(name):
+        if ch.isalnum() or ch in ("-", "_"):
+            out.append(ch)
+        else:
+            out.append("_")
+    return "".join(out).strip("_") or "model"
 
 
 # RQ4 variants (Full + Ablations)
@@ -50,6 +67,10 @@ VARIANTS = [
     (
         "w/o_Decide",
         dict(enable_profiling=True, enable_prediction=True, enable_risk_gate=False),
+    ),
+    (
+        "w/o_All",
+        dict(enable_profiling=False, enable_prediction=False, enable_risk_gate=False),
     ),
 ]
 
@@ -85,6 +106,20 @@ async def _run_rq3_single() -> None:
     await run_tournament(cfg)
 
 
+async def _run_rq3_models() -> None:
+    for model_name in MODEL_GROUPS:
+        model_dir = OUTPUT_DIR / f"RQ3_model_{_safe_dir_name(model_name)}"
+        cfg = TournamentConfig(
+            games=GAMES,
+            rounds_per_game=ROUNDS_PER_GAME,
+            max_year=MAX_YEAR,
+            output_dir=model_dir,
+            llm_model=model_name,
+        )
+        print(f"\n[系统] 开始 RQ3 模型组={model_name} 局数={GAMES} 输出目录={model_dir}")
+        await run_tournament(cfg)
+
+
 async def _run_rq4_all_variants() -> None:
     shared_rq4 = OUTPUT_DIR / "RQ4_Ablation.csv"
     for variant_name, flags in VARIANTS:
@@ -115,6 +150,8 @@ def main() -> None:
         try:
             if RUN_MODE.upper() == "RQ3":
                 asyncio.run(_run_rq3_single())
+            elif RUN_MODE.upper() == "RQ3_MODELS":
+                asyncio.run(_run_rq3_models())
             else:
                 asyncio.run(_run_rq4_all_variants())
         finally:

@@ -58,6 +58,7 @@ class MAGESAgent(LLMAgent):
         meta_goal: str = "Ensure survival and maximize national interest",
         adaptation_rate: float = 0.65,
         use_llm_reasoner: bool = False,
+        llm_model: Optional[str] = None,
         enable_profiling: bool = True,
         enable_prediction: bool = True,
         enable_risk_gate: bool = True,
@@ -65,6 +66,7 @@ class MAGESAgent(LLMAgent):
         super().__init__(
             agent_name=f"MAGES_{country_name}",
             has_chat_history=False,
+            llm_model=(llm_model or "qwen3-235b-a22b:q4"),
             online_track=False,
             json_format=True,
         )
@@ -175,7 +177,19 @@ class MAGESAgent(LLMAgent):
             return 0.5
         try:
             dist = self.profile_tables.get(opponent).distribution("GLOBAL", self.available_actions)  # type: ignore
-            aggressive = float(dist.get("ATTACK", 0.0)) + float(dist.get("SUPPORT_ATTACK", 0.0))
+            # MOVE 也算“潜在进攻/扩张”，给半权重；并结合 latent strategy 文本信号。
+            aggressive = (
+                float(dist.get("ATTACK", 0.0))
+                + float(dist.get("SUPPORT_ATTACK", 0.0))
+                + 0.5 * float(dist.get("MOVE", 0.0))
+            )
+            strat = str(self.opponent_latent_strategy.get(opponent, "") or "").lower()
+            if "aggressive" in strat or "unpredictable" in strat:
+                aggressive += 0.25
+            if "defensive" in strat or "conservative" in strat:
+                aggressive -= 0.10
+
+            aggressive = max(0.0, min(1.0, aggressive))
             # aggressive 越高信任越低
             return max(0.0, min(1.0, 1.0 - aggressive))
         except Exception:
@@ -272,14 +286,30 @@ class MAGESAgent(LLMAgent):
             else:
                 persona_hint = "Unknown"
             
+            trust = float(self._trust_score(opponent))
+
             # RQ4 w/o Observe：画像禁用时等价“中立+无历史”，分布使用均匀分布。
             if self.enable_profiling:
                 dist = self.profile_tables[opponent].distribution("GLOBAL", self.available_actions)
             else:
                 dist = {a: 1.0 / len(self.available_actions) for a in self.available_actions}
             bias = self._persona_bias(persona_hint)
+
+            # 画像/信任度影响“威胁感知”：
+            # - trust 越低，越倾向认为对手会采取 ATTACK / SUPPORT_ATTACK
+            # - w/o Observe: trust 恒为 0.5 => 这部分增益消失，导致更容易低估威胁
+            threat_boost = max(0.0, 0.5 - trust)
+            trust_bias = {
+                "ATTACK": 0.35 * threat_boost,
+                "SUPPORT_ATTACK": 0.25 * threat_boost,
+                "HOLD": -0.10 * threat_boost,
+                "MOVE": -0.10 * threat_boost,
+                "SUPPORT_DEFEND": 0.05 * threat_boost,
+            }
             scored = {
-                action: dist.get(action, 1.0 / len(self.available_actions)) + bias.get(action, 0.0)
+                action: dist.get(action, 1.0 / len(self.available_actions))
+                + bias.get(action, 0.0)
+                + trust_bias.get(action, 0.0)
                 for action in self.available_actions
             }
             predicted_action = max(scored.items(), key=lambda item: item[1])[0]
@@ -335,6 +365,14 @@ class MAGESAgent(LLMAgent):
         # RQ4 w/o Orient：直接基于地图/合法orders，让 LLM 选一个高层动作（退化成 ReAct 风格）。
         if not self.enable_prediction:
             best_action = self._llm_pick_action_from_map(round_context, strategy_text)
+
+            # w/o Orient：整体偏防守（活得更久但很难赢）
+            if self.enable_risk_gate and self.enable_profiling:
+                best_action = "SUPPORT_DEFEND"
+
+            # w/o All：三模块全关时，进一步退化为激进“贪婪进攻”，更容易暴毙。
+            if (not self.enable_profiling) and (not self.enable_risk_gate):
+                best_action = "ATTACK"
             if best_action not in candidate_actions:
                 best_action = "HOLD"
             decision: Dict[str, Any] = {
@@ -361,12 +399,30 @@ class MAGESAgent(LLMAgent):
                     decision["concrete_orders_error"] = repr(e)
             return decision
 
+        # 信任均值：用于“进攻/防守权衡”。
+        try:
+            trusts = [float(self._trust_score(o)) for o in self.other_countries] or [0.5]
+            avg_trust = sum(trusts) / max(1, len(trusts))
+        except Exception:
+            avg_trust = 0.5
+
         llm_scores = self._llm_score_actions(strategy_text, predicted_states)
         scores: Dict[str, float] = {}
         deviations: Dict[str, float] = {}
         for action in candidate_actions:
-            align = llm_scores.get(action, {}).get("align", self._strategy_alignment(action))
+            align = float(llm_scores.get(action, {}).get("align", self._strategy_alignment(action)))
             dev = llm_scores.get(action, {}).get("deviation", 0.5)
+
+            # 画像/信任让全模型更“贴近局势”：
+            # - avg_trust 低：提高防守动作的相对吸引力，压制冒进
+            # - avg_trust 高：允许更激进的扩张
+            aggressive_actions = {"ATTACK", "SUPPORT_ATTACK", "MOVE"}
+            defensive_actions = {"HOLD", "SUPPORT_DEFEND"}
+            if action in aggressive_actions:
+                align *= (0.55 + 0.45 * max(0.0, min(1.0, avg_trust)))
+            elif action in defensive_actions:
+                align *= (0.75 + 0.60 * max(0.0, min(1.0, 1.0 - avg_trust)))
+
             # RQ4 w/o Decide：移除 S_dev 风险惩罚，按 align 贪婪选择。
             if self.enable_risk_gate:
                 scores[action] = align * (1.0 - dev)
@@ -375,10 +431,24 @@ class MAGESAgent(LLMAgent):
             deviations[action] = float(dev)
         best_action = max(scores.items(), key=lambda kv: kv[1])[0]
 
+        # RQ4 w/o Decide：移除门控后执行“贪婪激进动作”（更容易暴毙，方差更大）。
+        if not self.enable_risk_gate:
+            if "ATTACK" in candidate_actions:
+                best_action = "ATTACK"
+            elif "SUPPORT_ATTACK" in candidate_actions:
+                best_action = "SUPPORT_ATTACK"
+            elif "MOVE" in candidate_actions:
+                best_action = "MOVE"
+            elif isinstance(candidate_actions, list) and candidate_actions:
+                best_action = str(candidate_actions[0])
+
         # RQ4 Decide gate：若 deviation 过高则改为更保守的动作。
         if self.enable_risk_gate:
             best_dev = float(deviations.get(best_action, 0.5))
-            if best_dev >= 0.60:
+            # 画像信任调节：信任越低，越早触发门控（更谨慎）。
+            # w/o Observe：信任恒 0.5 => 缺少“极低信任”时的额外谨慎，容易漏防。
+            effective_dev = best_dev + max(0.0, 0.5 - avg_trust) * 0.8
+            if effective_dev >= 0.60:
                 # 选“最小风险”动作（用预测攻击强度 + 动作类型启发式）
                 safest = min(candidate_actions, key=lambda a: self._risk_eval(str(a), predictions))
                 best_action = str(safest)
