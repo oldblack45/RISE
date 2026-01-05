@@ -140,10 +140,10 @@ os.environ["IFLYTEK_SPARK_APP_ID"] = "Your App ID"
 os.environ["IFLYTEK_SPARK_API_SECRET"] = "Your API Secret"
 os.environ["IFLYTEK_SPARK_API_KEY"] = "Your API Key"
 
-os.environ["OPENAI_API_KEY"] = "sk-IMblefS5KQ5ET8izUvenvX71tOXiIZDp3ICQ33mFcUtKV8lq"
-os.environ["OPENAI_BASE_URL"] = "https://mj.chatgptten.com/v1"
+os.environ["OPENAI_API_KEY"] = "Your ApI Key"
+os.environ["OPENAI_BASE_URL"] = "OpenAI Base URL"
 
-os.environ["DASHSCOPE_API_KEY"] = "sk-b773947f621d49dc949b5cd65e0f1340"
+os.environ["DASHSCOPE_API_KEY"] = "Your ApI Key"
 
 
 # ollama模型白名单
@@ -165,7 +165,7 @@ class LLMAgent:
     def __init__(self,
                  agent_name,
                  has_chat_history=True,
-                 llm_model="qwen3-235b-a22b:q4",
+                 llm_model="gemma3:27b-q8",
                  online_track = False,
                  json_format = True,
                  system_prompt = ''

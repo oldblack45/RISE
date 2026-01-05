@@ -66,7 +66,7 @@ class MAGESAgent(LLMAgent):
         super().__init__(
             agent_name=f"MAGES_{country_name}",
             has_chat_history=False,
-            llm_model=(llm_model or "qwen3-235b-a22b:q4"),
+            llm_model=(llm_model or "gemma3:27b-q8"),
             online_track=False,
             json_format=True,
         )
@@ -704,7 +704,13 @@ class MAGESAgent(LLMAgent):
         return self.available_actions
 
     def _strategy_alignment(self, action: str) -> float:
-        is_defensive = "defensive" in self.current_strategy.lower() or "deterrence" in self.current_strategy.lower()
+        # Ensure strategy is a string to avoid AttributeError if it's a list
+        s_str = self.current_strategy
+        if isinstance(s_str, list):
+            s_str = " ".join(str(x) for x in s_str)
+        s_str = str(s_str).lower()
+
+        is_defensive = "defensive" in s_str or "deterrence" in s_str
 
         if action == "HOLD":
             return 0.7 if is_defensive else 0.3
@@ -781,10 +787,10 @@ class MAGESAgent(LLMAgent):
     def _llm_prune_actions(self, strategy: str, actions: List[str]) -> List[str]:
         try:
             prompt = (
-                "根据当前策略筛选动作集，只保留符合策略的动作。最多筛选三个动作\n"
-                "策略: {strategy}\n"
-                "全量动作: {actions}\n"
-                "返回 JSON: {{\"actions\": [\"HOLD\", ...]}}")
+                    "根据当前策略筛选动作集，只保留符合策略的动作。最多筛选三个动作\n"
+                    "策略: {strategy}\n"
+                    "全量动作: {actions}\n"
+                    "返回 JSON: {{\"actions\": [\"HOLD\", ...]}}")
             resp = self.get_response(prompt, input_param_dict={
                 "strategy": strategy,
                 "actions": actions,

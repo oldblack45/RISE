@@ -19,7 +19,7 @@ from simulation.diplomacy.tournament import TournamentConfig, run_tournament
 
 
 # 直接在此修改配置
-RUN_MODE = "RQ4"  # "RQ3" / "RQ4" / "RQ3_MODELS"
+RUN_MODE = "RQ3_MODELS"  # "RQ3" / "RQ4" / "RQ3_MODELS"
 
 # RQ3（常规）
 GAMES = 20
@@ -34,9 +34,9 @@ OUTPUT_DIR = Path(f"experiments/diplomacy_tournament_{_ts}")
 
 
 MODEL_GROUPS = [
-    "gemma3:27b-q8",
-    "gpt-oss:20b",
-    "qwen3-235b-a22b:q4",
+    "gpt-4o",
+    "gpt-5",
+    "glm-4.5",
 ]
 
 

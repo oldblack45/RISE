@@ -5,6 +5,12 @@ import matplotlib.pyplot as plt
 import pandas as pd
 import seaborn as sns
 
+# ========== 配置区域 ==========
+# 指定实验文件夹名称，例如：'diplomacy_tournament_20251220_214450'
+# 如果设置为 None，则自动选择最新的文件夹
+EXPERIMENT_FOLDER = 'diplomacy_tournament_20251217_000945'
+# =============================
+
 
 def find_latest_experiment_folder(project_root: str) -> str:
     experiments_dir = os.path.join(project_root, 'experiments')
@@ -23,7 +29,15 @@ def main() -> None:
     current_dir = os.path.dirname(os.path.abspath(__file__))
     project_root = os.path.dirname(current_dir)
 
-    latest_folder = find_latest_experiment_folder(project_root)
+    if EXPERIMENT_FOLDER:
+        # 用户指定了文件夹名称
+        latest_folder = os.path.join(project_root, 'experiments', EXPERIMENT_FOLDER)
+        if not os.path.exists(latest_folder):
+            raise FileNotFoundError(f"指定的文件夹不存在: {latest_folder}")
+        print(f"使用指定的实验文件夹: {latest_folder}")
+    else:
+        # 自动选择最新的文件夹
+        latest_folder = find_latest_experiment_folder(project_root)
 
     df = pd.read_csv(os.path.join(latest_folder, 'RQ2_Evolution.csv'))
     # 2. 设置学术风格 (Seaborn + Matplotlib)
