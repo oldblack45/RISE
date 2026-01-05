@@ -18,8 +18,8 @@ from simulation.examples.PowerGameWorld.entity.rule_based_systems import (
 )
 
 # 导入我们新创建的Agent类
-from agents.hypothetical_minds_agent import HypotheticalMindsAgent
-from agents.werewolf_agent import WerewolfCountryAgent
+from agents.EvoAgent import HypotheticalMindsAgent
+from agents.ReActAgent import WerewolfCountryAgent
 from agents.war_agent import (
     WarCountryAgent, Board, create_america_profile, create_soviet_profile
 )
