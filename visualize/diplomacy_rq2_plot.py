@@ -65,7 +65,7 @@ def main() -> None:
     # 5. 绘制全局平均线 (The Hero Line) - 带置信区间
     # Seaborn 的 lineplot 默认会画出 95% 置信区间 (阴影部分)
     sns.lineplot(data=df, x='Round', y='Prediction_Accuracy', 
-                color='#C0392B', linewidth=3, errorbar=('ci', 95), label='MAGES (Global Avg.)', ax=ax)
+                color='#C0392B', linewidth=3, errorbar=('ci', 95), label='RISE (Global Avg.)', ax=ax)
 
     # 6. 添加阶段标注 (Phase Annotation) - 最关键的叙事部分
     # Phase 1: Exploration
@@ -86,7 +86,7 @@ def main() -> None:
     ax.set_ylim(0, 1.05)
     ax.set_xlim(1, 20)
 
-    # 优化图例：把 MAGES 放在最前面
+    # 优化图例：把 RISE 放在最前面
     handles, labels = ax.get_legend_handles_labels()
     # 重排图例顺序，让 Global Avg 在第一位
     order = [-1] + list(range(len(labels)-2)) + [-2] # Adjust index based on labels

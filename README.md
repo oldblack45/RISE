@@ -1,174 +1,154 @@
-# MAGES: Multi-Agent Game Evaluation & Cognitive Enhancement Platform
+# RISE: From Hindsight to Foresight via Structured Cognitive Evolution in Multi-Agent Strategic Simulations
 
-MAGES is a unified experimental framework for comparing multiple decision-making agent paradigms (Cognitive-Enhanced model, Chain-of-Thought, ReAct, Werewolf-Inspired, etc.) in structured geopolitical / strategic simulation scenarios. It supports:
-- Batch comparative runs across agent reasoning styles
-- Unified experiment directory organization with timestamped folders
-- Cognitive model ablation studies (world model / hypothesis reasoning / full removal)
-- Strategy group comparisons (same strategy on both sides)
-- Multi-dimensional evaluation metrics (Event Alignment, Action Similarity, Strategy Rationality, Outcome Match + aggregated final score)
+**RISE** is a unified experimental framework for evaluating LLM-based agents in complex multi-agent strategic simulations. It implements a novel **Observe-Orient-Decide-Act (OODA)** cognitive loop with evolutionary learning capabilities, enabling agents to transform historical experience into forward-looking strategic foresight.
 
----
-## 1. Core Directory Structure
+## Project Structure
+
 ```
-MAGES/
-├─ run_comparison.py              # Main interactive entrypoint (recommended)
-├─ comparative_cognitive_world.py # Unified world wrapper for different agent types
-├─ main.py                        # Example plotting script (not core)
-├─ requirements.txt               # Python dependencies
+RISE/
+├── run_diplomacy.py              # Entry point for Diplomacy tournament (micro scenario)
+├── run_comparison.py             # Entry point for CMC comparison experiments (macro scenario)
+├── comparative_cognitive_world.py # Unified world wrapper for agent comparison
+├── requirements.txt              # Python dependencies
 │
-├─ agents/                        # Custom country agents implementing reasoning paradigms
-│   ├─ cot_agent.py               # Chain-of-Thought agent
-│   ├─ war_agent.py               # WarAgent framework (macro-level historical simulation)
-│   └─ werewolf_agent.py          # Werewolf-inspired agent
+├── agents/                       # Agent implementations
+│   ├── rise_agent.py             # RISE Agent (OODA cognitive loop)
+│   ├── diplomacy_baselines.py    # ReAct, Reflexion, EvoAgent baselines for Diplomacy
+│   ├── ReActAgent.py             # Standalone ReAct agent
+│   ├── EvoAgent.py               # Standalone Evolutionary agent
+│   └── war_agent.py              # WarAgent framework (macro-level simulation)
 │
-├─ models/                        # Generic or abstract layers (if used)
-│   ├─ agents/                    # Base agent definitions
-│   └─ cognitive/                 # Cognitive model components (profile, memory, reasoning, learning, evaluation, logging)
-│       ├─ agent_profile.py
-│       ├─ cognitive_agent.py
-│       ├─ hypothesis_reasoning.py
-│       ├─ learning_system.py
-│       ├─ evaluation_system.py   # Metric computation
-│       └─ experiment_logger.py   # Logging & persistence
+├── simulation/                   # Simulation scenarios and core models
+│   ├── powergame/                # 📍 Macro Scenario: Cuban Missile Crisis (CMC)
+│   │   ├── cognitive_world.py    #    Main world simulation logic
+│   │   ├── rule_based_systems.py #    Crisis dynamics and rules
+│   │   ├── America.py            #    US country entity
+│   │   ├── SovietUnion.py        #    USSR country entity
+│   │   └── world.py              #    Base world abstraction
+│   │
+│   ├── diplomacy/                # 📍 Micro Scenario: Diplomacy Game Tournament
+│   │   └── tournament.py         #    Tournament runner (RISE vs baselines)
+│   │
+│   └── models/                   # Shared model components
+│       ├── agents/               #    Base agent abstractions
+│       │   ├── LLMAgent.py       #    LLM interface wrapper
+│       │   ├── GameAgent.py      #    Game agent base class
+│       │   └── SecretaryAgent.py #    Secretary agent helper
+│       │
+│       └── cognitive/            #    Cognitive model components
+│           ├── cognitive_agent.py      # Core cognitive agent
+│           ├── agent_profile.py        # Opponent profiling system
+│           ├── hypothesis_reasoning.py # Hypothesis-driven reasoning
+│           ├── learning_system.py      # Experience-based learning
+│           ├── evaluation_system.py    # Multi-metric evaluation
+│           ├── experiment_logger.py    # Experiment logging
+│           └── world_cognition.py      # World state cognition
 │
-├─ simulation/                    # Scenario implementations (e.g., PowerGameWorld, PrisonerDilemma)
-│   └─ examples/PowerGameWorld/
-│        └─ entity/               # World entities, rule systems, loggers, structured memory
+├── visualize/                    # Visualization scripts
+│   ├── diplomacy_rq2_plot.py     # RQ2: Prediction accuracy evolution
+│   ├── diplomacy_rq3_plot.py     # RQ3: Tournament win rates
+│   ├── radar_chart.py            # Ablation study radar charts
+│   ├── radar_2_chart.py          # Hexagonal ablation visualization
+│   ├── bar_chart.py              # Method comparison bar charts
+│   └── ...                       # Additional plotting utilities
 │
-├─ experiments/                   # Auto-generated experiment outputs
-│   ├─ unified_comparison_*/      # A unified comparison run (timestamped)
-│   │    ├─ *_test_*/             # Sub-folders per method (cot/react/werewolf/cognitive)
-│   │    │    ├─ experiment_info.json
-│   │    │    ├─ logs/
-│   │    │    ├─ evaluation/
-│   │    │    ├─ cognition_data/  # Only for cognitive model
-│   │    │    └─ summary/
-│   │    ├─ quick_comparison_results.json
-│   │    ├─ unified_comparison_results.json
-│   │    ├─ cuban_ablation_comparison_results.json (if ablation run)
-│   │    └─ cognitive_strategy_groups_results.json (if strategy group run)
-│   └─ cognitive_model_test_*/    # Standalone cognitive model runs
-│
-├─ visiualize/                    # (Typo: should be visualize) plotting scripts (radar/bar/strategy)
-└─ figures/                       # Generated figures / exports
-```
-
----
-## 2. Environment & Installation
-### 2.1 Python Version
-Recommended: Python 3.10+ (for compatibility with torch, langchain, pandas, etc.).
-
-### 2.2 Create Virtual Environment (Windows)
-```cmd
-python -m venv .venv
-.venv\Scripts\activate
-```
-
-### 2.3 Install Dependencies
-```cmd
-pip install -r requirements.txt
-```
-If you encounter regional network issues, configure a mirror (optional):
-```cmd
-pip config set global.index-url https://pypi.tuna.tsinghua.edu.cn/simple
+└── experiments/                  # Auto-generated experiment outputs
+    ├── diplomacy_tournament_*/   # Diplomacy tournament results
+    └── unified_comparison_*/     # CMC comparison results
 ```
 
 ---
-## 3. Environment Variables (LLM / API Backends)
-`run_comparison.py` sets defaults using `os.environ.setdefault(...)`. Override them explicitly for security and portability:
-```cmd
-set DASHSCOPE_API_KEY=YOUR_KEY
-set DASHSCOPE_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
-```
-For OpenAI-compatible endpoints:
-```cmd
-set OPENAI_API_KEY=YOUR_OPENAI_KEY
-set OPENAI_BASE_URL=https://api.openai.com/v1
-```
-(If using a proxy / compatible gateway, adjust `OPENAI_BASE_URL` accordingly.)
 
----
-## 4. Quick Start
-### 4.1 Interactive Menu (Recommended)
-```cmd
+## Experimental Scenarios
+
+### 1. Macro Scenario: Cuban Missile Crisis (CMC)
+Located in `simulation/powergame/`
+
+A bilateral strategic simulation modeling the 1962 Cuban Missile Crisis. Two AI agents (USA vs USSR) engage in multi-round decision-making with:
+- Tension escalation/de-escalation dynamics
+- Strategic action categories (military, diplomatic, economic)
+- Crisis termination conditions (resolution, escalation to war)
+
+**Run with:**
+```bash
 python run_comparison.py
 ```
-You will see:
+
+### 2. Micro Scenario: Diplomacy Tournament
+Located in `simulation/diplomacy/`
+
+Based on the classic board game Diplomacy (no-press variant). RISE (playing as England) competes against baseline agents (ReAct, Reflexion, EvoAgent) across multiple game rounds.
+
+**Run with:**
+```bash
+python run_diplomacy.py
 ```
-1. Quick comparison (Cognitive + CoT + ReAct + Werewolf)
+
+---
+
+## Installation
+
+### Requirements
+- Python 3.10+
+- CUDA-compatible GPU (recommended for local LLM inference)
+
+### Setup
+```bash
+# Create virtual environment
+python -m venv .venv
+
+# Activate (Windows)
+.venv\Scripts\activate
+
+# Install dependencies
+pip install -r requirements.txt
+```
+
+### LLM Configuration
+Configure your LLM backend via environment variables:
+
+```bash
+# For Dashscope (Qwen)
+set DASHSCOPE_API_KEY=your_key
+
+# For OpenAI-compatible endpoints
+set OPENAI_API_KEY=your_key
+set OPENAI_BASE_URL=http://localhost:8500/v1
+```
+
+---
+
+## Quick Start
+
+### Diplomacy Tournament (RQ2 & RQ3)
+```bash
+python run_diplomacy.py
+```
+Outputs saved to `experiments/diplomacy_tournament_*/`:
+- `RQ2_Evolution.csv`: Per-round prediction accuracy
+- `RQ3_Performance.csv`: Game outcomes and win rates
+- `Turn_Log.csv`: Detailed turn-by-turn logs
+
+### CMC Comparison Experiments
+```bash
+python run_comparison.py
+```
+Interactive menu options:
+1. Quick comparison (all methods)
 2. Single method test
-3. Unified comparison (all results under one folder)
-4. Cognitive model standalone test
-5. Custom subset comparison
-6. Cuban Missile Crisis ablation comparison
-7. Cognitive model strategy-group comparison (same strategy both sides)
-```
-Enter the number and press Enter.
-
-### 4.2 Output Locations
-- All experiments: `experiments/`
-- Per-method run: `*/logs`, `*/evaluation`, `*/summary`, plus `cognition_data` for cognitive
-- Aggregated JSON: `quick_comparison_results.json`, `unified_comparison_results.json`, etc.
+3. Unified comparison
+4. Ablation study
+5. Strategy group comparison
 
 ---
-## 5. Experiment Modes
-| Mode | Description | Key Output |
-|------|-------------|------------|
-| Quick Comparison | Run all four methods once | quick_comparison_results.json |
-| Single Method | Run one chosen method | method-specific test_* folder |
-| Unified Comparison | All methods, single parent folder | unified_comparison_results.json |
-| Cognitive Standalone | Only cognitive world | cognitive_model_test_* |
-| Custom Subset | Interactive subset selection | unified_comparison_* |
-| Ablation (Cuban Crisis) | Remove world model / hypothesis reasoning / all | cuban_ablation_comparison_results.json |
-| Strategy Groups | Both sides same strategy (flexible/hardline/concession/tit-for-tat) | cognitive_strategy_groups_results.json |
+
+## Extending RISE
+
+| Goal | Approach |
+|------|----------|
+| Add new agent | Implement in `agents/`, register in `AGENT_TYPES` |
+| Add new metric | Extend `evaluation_system.py` |
+| New scenario | Create folder under `simulation/`, implement world logic |
+| Custom visualization | Add scripts to `visualize/` |
 
 ---
-## 6. Evaluation Metrics
-Implemented in `evaluation_system` (invoked via `experiment_logger.run_evaluation()`):
-- EA (Event Alignment): Consistency between actions and evolving context
-- AS (Action Similarity): Semantic / categorical proximity to expected or normative templates
-- SR (Strategy Rationality): Internal logical coherence & strategic continuity
-- OM (Outcome Match): Alignment of final state with desired / stable outcomes
-- final_score: Weighted aggregate (customize via `run_final_evaluation(weights={...})`)
-
----
-## 7. Core Architecture & Flow
-1. `ComparativeCognitiveWorld` orchestrates agents (cognitive / cot / react / werewolf) in a shared turn-based environment.
-   - `start_sim(max_steps=8)` loops `run_one_step()`
-   - Each step: world snapshot → agent decisions → rule-based (or LLM) feedback → evaluation logging → learning → tension update → termination check
-   - Final: report generation + evaluation
-2. Custom Agents: Implement distinct reasoning paradigms under `agents/`.
-3. Cognitive Model: Backed by `simulation.examples.PowerGameWorld.entity.cognitive_world` + modular enhancements in `models/cognitive/`.
-4. Evaluation: `experiment_logger` aggregates per-round structured memory or logs and computes metrics.
-
----
-## 8. Extending the Platform
-| Goal | How to Proceed |
-|------|----------------|
-| Add a new reasoning method | Copy an existing agent file; implement decision logic; register in `AGENT_TYPES` + `_initialize_agents()` |
-| Add a new metric | Extend `evaluation_system.py` and integrate into scoring aggregation |
-| Change metric weights | Call `run_final_evaluation(weights={"ea":0.2, "as":0.3, ...})` |
-| New scenario | Add a folder under `simulation/examples/YourWorld`; implement entity + rule systems |
-| External visualization | Use data in `evaluation/` + `summary/` or build dashboards from logs |
-
----
-## 9. FAQ
-1. No cognitive folders generated? → Only created when running the cognitive model.
-2. All scores zero / missing? → Check `experiments/.../logs/console_output.log`; confirm evaluation rounds were recorded and feedback generated.
-3. Install failures? → Ensure correct Python version; clear pip cache; verify that `requirements.txt` is UTF-8.
-4. How to shorten runs? → Lower `max_steps` when calling `start_sim()`.
-5. Want deterministic runs? → (Future) add seeding; currently depends on model outputs and timing.
-6. Encoding issues? → All repository text files should be UTF-8; re-save if needed.
-
----
-## 10. Example Output Structure (Quick Comparison)
-```
-experiments/
-└─ unified_comparison_0910_1530/
-    ├─ cognitive_model_test_0910_1530/
-    ├─ cot_test_0910_1531/
-    ├─ react_test_0910_1532/
-    ├─ werewolf_test_0910_1533/
-    ├─ quick_comparison_results.json
-    └─ unified_comparison_results.json
-```

@@ -46,8 +46,8 @@ class PredictionRecord:
     confidence: float
 
 
-class MAGESAgent(LLMAgent):
-    """MAGES Agent: Observe-Orient-Decide-Act 循环的通用实现。"""
+class RISEAgent(LLMAgent):
+    """RISE Agent: Observe-Orient-Decide-Act 循环的通用实现。"""
 
     def __init__(
         self,
@@ -64,7 +64,7 @@ class MAGESAgent(LLMAgent):
         enable_risk_gate: bool = True,
     ):
         super().__init__(
-            agent_name=f"MAGES_{country_name}",
+            agent_name=f"RISE_{country_name}",
             has_chat_history=False,
             llm_model=(llm_model or "gemma3:27b-q8"),
             online_track=False,

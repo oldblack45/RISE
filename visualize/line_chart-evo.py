@@ -23,7 +23,7 @@ sns.set_style("whitegrid")
 
 # Plot Global Average with a thicker line
 sns.lineplot(data=global_acc, x='Round', y='Prediction_Accuracy',
-             color='red', linewidth=3, label='MAGES (Global Average)')
+             color='red', linewidth=3, label='RISE (Global Average)')
 
 # Plot individual Personas with thinner lines / different styles
 sns.lineplot(data=persona_acc, x='Round', y='Prediction_Accuracy', hue='Target_Persona',

@@ -40,7 +40,7 @@ def _log_print_safe(message: str, level: str = "INFO") -> None:
         print(message)
 
 
-_LLM_LOG_CONTEXT: ContextVar[dict] = ContextVar("MAGES_LLM_LOG_CONTEXT", default={})
+_LLM_LOG_CONTEXT: ContextVar[dict] = ContextVar("RISE_LLM_LOG_CONTEXT", default={})
 
 
 _LLM_CALL_STATS_LOCK = threading.Lock()
@@ -108,7 +108,7 @@ def _append_jsonl_safe(path: str, obj: dict) -> None:
 def _trace_llm_prompt_safe(payload: dict) -> None:
     try:
         # 统一打到控制台（由 run_diplomacy.py 的 console tee 落盘），不再单独写 JSONL。
-        if not os.environ.get("MAGES_TRACE"):
+        if not os.environ.get("RISE_TRACE"):
             return
 
         ctx = payload.get("context") or {}
@@ -117,8 +117,8 @@ def _trace_llm_prompt_safe(payload: dict) -> None:
         llm_model = payload.get("llm_model", "")
         ts = payload.get("ts", "")
 
-        # 默认只输出摘要，避免把终端刷爆；需要全文可设 MAGES_TRACE_VERBOSE=1。
-        verbose = os.environ.get("MAGES_TRACE_VERBOSE") == "1"
+        # 默认只输出摘要，避免把终端刷爆；需要全文可设 RISE_TRACE_VERBOSE=1。
+        verbose = os.environ.get("RISE_TRACE_VERBOSE") == "1"
         system_prompt = str(payload.get("system_prompt", ""))
         user_prompt = str(payload.get("user_prompt", ""))
         sys_preview = system_prompt if verbose else (system_prompt[:400] + ("..." if len(system_prompt) > 400 else ""))

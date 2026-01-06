@@ -13,13 +13,13 @@ from simulation.models.cognitive.experiment_logger import (
     ExperimentLogger, init_logger, log_print, get_logger
 )
 from simulation.models.agents.SecretaryAgent import WorldSecretaryAgent
-from simulation.examples.PowerGameWorld.entity.logger import GameLogger
+from simulation.powergame.logger import GameLogger
 from simulation.models.cognitive.learning_system import CognitiveLearningSystem, LearningMode
 from simulation.models.cognitive.country_strategy import (
     CountryStrategy,
     make_flexible_strategy,
 )
-from simulation.examples.PowerGameWorld.entity.rule_based_systems import (
+from simulation.powergame.rule_based_systems import (
     RuleBasedAttributeAdjuster, RuleBasedScoreCalculator, 
     WorldFeedbackSystem, StructuredWorldMemory
 )

@@ -18,7 +18,7 @@ ablation_data = {
     'w/o agent profiling': [0.64, 0.75, 0.5, 0.51],
     'w/o reasoning': [0.58, 0.75, 0.5, 0.49],
     'w/o all': [0.51, 0.5, 0.4, 0.45],
-    'MAGES': [0.65, 1.00, 1.00, 0.81]
+    'RISE': [0.65, 1.00, 1.00, 0.81]
 }
 
 # 定义颜色（完整模型浅色，消融模型深色）
@@ -27,7 +27,7 @@ colors = {
     'w/o agent profiling': '#1F77B4',  # 深蓝色
     'w/o reasoning': '#2CA02C',        # 深绿色
     'w/o all': '#9467BD',            # 深紫色
-    'MAGES': '#FFD1DC'     # 浅粉色
+    'RISE': '#FFD1DC'     # 浅粉色
 }
 
 # 对比组合及标题（全部小写，与数据一致）
@@ -76,8 +76,8 @@ def draw_radar_data(ax, model1_name, model1_data, model2_name, model2_data, angl
             y_points.append(y)
         x_points.append(x_points[0])
         y_points.append(y_points[0])
-        linewidth = 3 if model_name == 'MAGES' else 2
-        alpha = 0.9 if model_name == 'MAGES' else 0.8
+        linewidth = 3 if model_name == 'RISE' else 2
+        alpha = 0.9 if model_name == 'RISE' else 0.8
         ax.plot(x_points, y_points, 'o-', linewidth=linewidth, markersize=6,
                 color=colors[model_name], label=model_name, alpha=alpha)
         ax.fill(x_points, y_points, alpha=0.15, color=colors[model_name])
@@ -106,7 +106,7 @@ for i, (ablation_model, title) in enumerate(comparisons):
     ax = axes[i]
     draw_radar_grid(ax, angles, ring_values, max_radius)
     draw_radar_data(ax, ablation_model, ablation_data[ablation_model],
-                   'MAGES', ablation_data['MAGES'], angles, colors)
+                   'RISE', ablation_data['RISE'], angles, colors)
     setup_radar_axes(ax, '', metrics, angles, ring_values, label_distance, max_radius, limit_xy)
     legend = ax.legend(loc='upper right', bbox_to_anchor=(1.0, 1.0),
                       frameon=True, fancybox=True, shadow=False, fontsize=10)

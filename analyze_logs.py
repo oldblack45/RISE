@@ -2,8 +2,8 @@ import pandas as pd
 import os
 
 def analyze_logs():
-    turn_log_path = r'd:\python_project\MAGES\experiments\diplomacy_tournament_20251215_192151\Turn_Log.csv'
-    evolution_log_path = r'd:\python_project\MAGES\experiments\diplomacy_tournament_20251215_192151\RQ2_Evolution.csv'
+    turn_log_path = r'd:\python_project\RISE\experiments\diplomacy_tournament_20251215_192151\Turn_Log.csv'
+    evolution_log_path = r'd:\python_project\RISE\experiments\diplomacy_tournament_20251215_192151\RQ2_Evolution.csv'
 
     if not os.path.exists(turn_log_path):
         print(f"File not found: {turn_log_path}")

@@ -54,7 +54,7 @@ def run_quick_comparison():
                     if result:
                         results[method] = {
                             "scores": {"final_score": result.final_score},
-                            "method_description": "认知增强模型 (MAGES)"
+                            "method_description": "认知增强模型 (RISE)"
                         }
                     else:
                         results[method] = {"error": "认知模型测试失败"}
@@ -105,7 +105,7 @@ def run_cognitive_model_test(unified_folder: str = None, ablation_mode: str = "n
     
     try:
         # 导入认知模型
-        from simulation.examples.PowerGameWorld.entity.cognitive_world import CognitiveWorld
+        from simulation.powergame.cognitive_world import CognitiveWorld
         
         print("开始运行认知模型测试...")
         if ablation_mode and ablation_mode != "none":
@@ -216,7 +216,7 @@ def run_cognitive_strategy_groups():
     print("="*50)
 
     try:
-        from simulation.examples.PowerGameWorld.entity.cognitive_world import CognitiveWorld
+        from simulation.powergame.cognitive_world import CognitiveWorld
         from simulation.models.cognitive.country_strategy import (
             make_flexible_strategy,
             make_hardline_strategy,
@@ -411,7 +411,7 @@ def run_unified_comparison():
                             "om_score": result.om_score,
                             "final_score": result.final_score
                         },
-                        "method_description": "认知增强模型 (MAGES)"
+                        "method_description": "认知增强模型 (RISE)"
                     }
                 else:
                     results[method] = {"error": "认知模型测试失败"}

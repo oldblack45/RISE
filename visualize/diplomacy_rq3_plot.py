@@ -32,14 +32,14 @@ def main() -> None:
     win_rates = (win_counts / total_games * 100).reset_index()
     win_rates.columns = ['Architecture', 'Win_Rate']
 
-    order = ['MAGES', 'ReAct', 'Reflexion', 'EvoAgent']
+    order = ['RISE', 'ReAct', 'Reflexion', 'EvoAgent']
     win_rates['Architecture'] = pd.Categorical(win_rates['Architecture'], categories=order, ordered=True)
     win_rates = win_rates.sort_values('Architecture')
 
     sns.set(style="whitegrid", font_scale=1.1)
     fig, ax = plt.subplots(1, 1, figsize=(8, 6))
 
-    colors = ['#d62728' if x == 'MAGES' else '#95a5a6' for x in win_rates['Architecture']]
+    colors = ['#d62728' if x == 'RISE' else '#95a5a6' for x in win_rates['Architecture']]
     bp = sns.barplot(ax=ax, data=win_rates, x='Architecture', y='Win_Rate', palette=colors)
 
     for p in bp.patches:

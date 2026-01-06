@@ -140,7 +140,7 @@ async def _run_rq4_all_variants() -> None:
 def main() -> None:
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     # 让 LLMAgent 将 trace 直接打印到控制台（由 console_output.log 捕获）
-    os.environ["MAGES_TRACE"] = "1"
+    os.environ["RISE_TRACE"] = "1"
 
     log_path = OUTPUT_DIR / "console_output.log"
     with open(log_path, "w", encoding="utf-8") as f:

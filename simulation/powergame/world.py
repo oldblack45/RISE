@@ -1,9 +1,9 @@
 # 世界模拟器命令行运行版本
 import time
-from simulation.examples.PowerGameWorld.entity.SovietUnion import SovietUnionAgent
-from simulation.examples.PowerGameWorld.entity.America import AmericaAgent
+from simulation.powergame.SovietUnion import SovietUnionAgent
+from simulation.powergame.America import AmericaAgent
 from simulation.models.agents.SecretaryAgent import WorldSecretaryAgent
-from simulation.examples.PowerGameWorld.entity.logger import GameLogger
+from simulation.powergame.logger import GameLogger
 class World:
     def __init__(self):
         self.soviet_union = SovietUnionAgent()

@@ -12,7 +12,7 @@ from pathlib import Path
 
 # 导入现有的模拟系统组件
 from simulation.models.cognitive.experiment_logger import init_logger
-from simulation.examples.PowerGameWorld.entity.rule_based_systems import (
+from simulation.powergame.rule_based_systems import (
     RuleBasedAttributeAdjuster, RuleBasedScoreCalculator,
     WorldFeedbackSystem, StructuredWorldMemory
 )
@@ -26,7 +26,7 @@ from agents.war_agent import (
 
 # 导入原有的认知Agent作为基准
 try:
-    from simulation.examples.PowerGameWorld.entity.cognitive_world import CognitiveCountryAgent
+    from simulation.powergame.cognitive_world import CognitiveCountryAgent
     ORIGINAL_AGENT_AVAILABLE = True
 except ImportError:
     ORIGINAL_AGENT_AVAILABLE = False
@@ -39,7 +39,7 @@ class ComparativeCognitiveWorld:
 
     # 支持的Agent类型
     AGENT_TYPES = {
-        "cognitive": "认知增强Agent (MAGES)",
+        "cognitive": "认知增强Agent (RISE)",
         "hm": "Hypothetical Minds (心智理论框架)",
         "werewolf": "Werewolf-Inspired Agent",
         "war": "WarAgent Framework (宏观历史模拟)"
@@ -435,7 +435,7 @@ class ComparativeCognitiveWorld:
 if __name__ == "__main__":
     print("选择测试模式:")
     print("1. 单个方法测试")
-    print("2. WarAgent vs MAGES 对比测试")
+    print("2. WarAgent vs RISE 对比测试")
 
     choice = input("请选择 (1/2, 默认2): ").strip() or "2"
 
@@ -460,8 +460,8 @@ if __name__ == "__main__":
         world.start_sim(max_steps=8)
         world.run_final_evaluation()
     else:
-        # WarAgent vs MAGES对比
-        print("\n开始 WarAgent vs MAGES 对比实验...")
+        # WarAgent vs RISE对比
+        print("\n开始 WarAgent vs RISE 对比实验...")
 
         methods_to_test = ["war"]
         if ORIGINAL_AGENT_AVAILABLE:

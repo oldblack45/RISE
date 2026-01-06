@@ -61,7 +61,7 @@ dip_raw =  {
   ]
 }
 cmc_raw = {
-    'MAGES': [0.65, 1.00, 0.81],
+    'RISE': [0.65, 1.00, 0.81],
     'w/o world model': [0.63, 0.75, 0.73],
     'w/o agent profiling': [0.64, 0.50, 0.51],
     'w/o reasoning': [0.58, 0.50, 0.49],
@@ -76,7 +76,7 @@ dip_norm = {}
 for k, v in dip_raw.items():
     dip_norm[k] = (np.array(v) / (dip_base + 1e-9)).tolist()
 
-cmc_base = np.array(cmc_raw['MAGES'])
+cmc_base = np.array(cmc_raw['RISE'])
 cmc_norm = {}
 for k, v in cmc_raw.items():
     cmc_norm[k] = (np.array(v) / (cmc_base + 1e-9)).tolist()
@@ -177,7 +177,7 @@ for i, (title, (c_key, d_key)) in enumerate(plot_mapping.items()):
 # Create custom legend handles
 blue_patch = mpatches.Patch(color='#3498DB', alpha=0.2, label='Macro: CMC')
 red_patch = mpatches.Patch(color='#E74C3C', alpha=0.2, label='Micro: Diplomacy')
-gray_line = plt.Line2D([0], [0], color='gray', linestyle='--', linewidth=2, label='Full MAGES Model')
+gray_line = plt.Line2D([0], [0], color='gray', linestyle='--', linewidth=2, label='Full RISE Model')
 variant_line = plt.Line2D([0], [0], color='black', linewidth=3, marker='o',
                           label='Ablated Variant')  # Generic black for legend
 
