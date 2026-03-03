@@ -1,0 +1,6 @@
+.idea/
+# 忽略所有的 .pyc 文件
+*.pyc
+simulation/examples/HarmonyOS/mapper/**
+simulation/examples/SocialInvolution/entity/agent_log/**
+/simulation/examples/PowerGameExperimental/logs
