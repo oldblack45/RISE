@@ -9,7 +9,7 @@ plt.figure(figsize=(10, 6))
 
 # 3. 绘制各基线的折线图 (自定义颜色、线型和标记以符合学术规范)
 plt.plot(df['Day'], df['Ours'], 
-         marker='o', color='#d62728', linewidth=2, markersize=5, label='Ours')
+         marker='o', color='#d62728', linewidth=2, markersize=5, label='RISE(Ours)')
 
 plt.plot(df['Day'], df['EvoAgent'], 
          marker='s', color='#1f77b4', linewidth=1.5, markersize=4, label='EvoAgent')

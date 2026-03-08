@@ -1,12 +1,12 @@
-"""SociologyAgent – Bridge between SAGE Agent and SocialInvolution Rider
+"""SociologyAgent – Bridge between RISE Agent and SocialInvolution Rider
 =======================================================================
 
 Provides the ``RiderLLMAgent`` mixin class that the existing
 ``simulation.SocialInvolution.entity.rider.Rider`` imports.
 
-The mixin instantiates two SAGE engines internally:
-    * ``_sage_time``  – for daily work-hour decisions  (decide_time)
-    * ``_sage_order`` – for order-selection decisions   (take_order)
+The mixin instantiates two RISE engines internally:
+    * ``_rise_time``  – for daily work-hour decisions  (decide_time)
+    * ``_rise_order`` – for order-selection decisions   (take_order)
 
 Both engines use the BFS Expectimax architecture with a
 ``SocialInvolutionAdapter`` tailored to the delivery-platform scenario.
@@ -27,17 +27,17 @@ class RiderLLMAgent:
 
         RiderLLMAgent.__init__(self, role_param_dict)
 
-    The actual SAGE engines are lazily initialised on first call so that
+    The actual RISE engines are lazily initialised on first call so that
     the rider's ``id`` / ``rider_num`` are available.
     """
 
     def __init__(self, role_param_dict: Optional[Dict[str, Any]] = None):
         self._role_params: Dict[str, Any] = role_param_dict or {}
-        self._sage_initialized: bool = False
+        self._rise_initialized: bool = False
 
-        # Will be populated by _ensure_sage_init
-        self._sage_time: Any  = None
-        self._sage_order: Any = None
+        # Will be populated by _ensure_rise_init
+        self._rise_time: Any  = None
+        self._rise_order: Any = None
 
         # Track last feedback for world-model learning between calls
         self._prev_money: float = 0.0
@@ -46,13 +46,13 @@ class RiderLLMAgent:
     # ------------------------------------------------------------------
     #  Lazy initialisation
     # ------------------------------------------------------------------
-    def _ensure_sage_init(self) -> None:
-        """Create SAGE engines once the rider entity attributes are ready."""
-        if self._sage_initialized:
+    def _ensure_rise_init(self) -> None:
+        """Create RISE engines once the rider entity attributes are ready."""
+        if self._rise_initialized:
             return
 
         # Deferred import to avoid circular dependency at module load time
-        from agents.sage_agent import SAGEAgent, SocialInvolutionAdapter
+        from agents.rise_agent import RISEAgent, SocialInvolutionAdapter
 
         rider_id: int   = getattr(self, "id", 0)
         rider_num: int  = getattr(self, "rider_num", 100)
@@ -63,8 +63,8 @@ class RiderLLMAgent:
         other_ids = [i for i in range(rider_num) if i != rider_id][:10]
         peer_names = [f"rider_{rid}" for rid in other_ids]
 
-        # ---- Work-time SAGE engine ------------------------------------
-        self._sage_time = SAGEAgent(
+        # ---- Work-time RISE engine ------------------------------------
+        self._rise_time = RISEAgent(
             country_name=f"rider_{rider_id}",
             other_countries=peer_names,
             meta_goal=(
@@ -78,12 +78,12 @@ class RiderLLMAgent:
             prob_threshold=0.05,
             risk_threshold=0.75,
         )
-        self._sage_time.adapter = SocialInvolutionAdapter(
+        self._rise_time.adapter = SocialInvolutionAdapter(
             rider_id, other_ids, "time",
         )
 
-        # ---- Order-selection SAGE engine ------------------------------
-        self._sage_order = SAGEAgent(
+        # ---- Order-selection RISE engine ------------------------------
+        self._rise_order = RISEAgent(
             country_name=f"rider_{rider_id}",
             other_countries=peer_names,
             meta_goal=(
@@ -97,11 +97,11 @@ class RiderLLMAgent:
             prob_threshold=0.05,
             risk_threshold=0.75,
         )
-        self._sage_order.adapter = SocialInvolutionAdapter(
+        self._rise_order.adapter = SocialInvolutionAdapter(
             rider_id, other_ids, "order",
         )
 
-        self._sage_initialized = True
+        self._rise_initialized = True
 
     # ------------------------------------------------------------------
     #  decide_time  –  called by Rider.decide_work_time() each new day
@@ -109,7 +109,7 @@ class RiderLLMAgent:
     def decide_time(
         self, runner_step: int, info: Dict[str, Any],
     ) -> Tuple[int, int]:
-        """Return ``(go_work_time, get_off_work_time)`` using SAGE.
+        """Return ``(go_work_time, get_off_work_time)`` using RISE.
 
         ``info`` typically contains::
 
@@ -122,7 +122,7 @@ class RiderLLMAgent:
                 "money_rank": 3,
             }
         """
-        self._ensure_sage_init()
+        self._ensure_rise_init()
 
         # --- build feedback from delta between calls ---
         current_money = float(getattr(self, "money", 0))
@@ -135,9 +135,9 @@ class RiderLLMAgent:
             fb = "income_stable"
 
         # Learn from the previous cycle
-        if self._sage_time.current_step > 0:
-            self._sage_time._update_world_model(
-                action=self._sage_time.meta_state.get("_last_action", "NORMAL"),
+        if self._rise_time.current_step > 0:
+            self._rise_time._update_world_model(
+                action=self._rise_time.meta_state.get("_last_action", "NORMAL"),
                 feedback=fb,
                 peer_reactions={},   # no direct peer observation for schedule
             )
@@ -157,11 +157,11 @@ class RiderLLMAgent:
             "rider_num":  info.get("rider_num", 100),
         }
 
-        result = self._sage_time.run_cycle(context)
+        result = self._rise_time.run_cycle(context)
         action = result["action"]
-        self._sage_time.meta_state["_last_action"] = action
+        self._rise_time.meta_state["_last_action"] = action
 
-        from agents.sage_agent import SocialInvolutionAdapter
+        from agents.rise_agent import SocialInvolutionAdapter
         time_map = SocialInvolutionAdapter.TIME_MAP
         go, off = time_map.get(action, (8, 18))
         return go, off
@@ -182,7 +182,7 @@ class RiderLLMAgent:
                 "accept_count": int,
             }
         """
-        self._ensure_sage_init()
+        self._ensure_rise_init()
 
         order_list = info.get("order_list", [])
         if not order_list:
@@ -191,7 +191,7 @@ class RiderLLMAgent:
         now_loc  = info.get("now_location", (0, 0))
         max_take = int(info.get("accept_count", 1))
 
-        # Build context for SAGE
+        # Build context for RISE
         # Compact order descriptions for the LLM
         order_descs: List[Dict[str, Any]] = []
         raw_items = (list(order_list.items())
@@ -221,7 +221,7 @@ class RiderLLMAgent:
             "orders":     order_descs,
         }
 
-        result = self._sage_order.run_cycle(context)
+        result = self._rise_order.run_cycle(context)
         action = result["action"]
 
         if action == "SKIP":

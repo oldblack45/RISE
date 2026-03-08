@@ -1,7 +1,7 @@
 """Grand Unified Diplomacy Tournament runner.
 
 This module orchestrates Diplomacy (standard/no-press) tournaments where
-SAGE (England) competes against a roster of baseline agents. The runner logs
+RISE (England) competes against a roster of baseline agents. The runner logs
 RQ2 (prediction accuracy) and RQ3 (game performance) metrics from the same
 experiments to support joint cognitive + game-theoretic evaluation.
 """
@@ -17,7 +17,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from diplomacy import Game
 
-from agents.sage_agent import SAGEAgent
+from agents.rise_agent import RISEAgent
 from agents.diplomacy_baselines import EvoBaselineAgent, ReActBaselineAgent, ReflexionBaselineAgent
 from simulation.models.agents.LLMAgent import reset_llm_call_stats, set_llm_log_context, snapshot_llm_call_stats
 
@@ -71,7 +71,7 @@ class DiplomacyTournamentRunner:
         with open(self.rq2_path, "w", newline="", encoding="utf-8") as f:
             csv.writer(f).writerow(["GameID", "Round", "Phase", "Target_Country", "Target_Persona", "Prediction_Accuracy"])
         with open(self.rq3_path, "w", newline="", encoding="utf-8") as f:
-            csv.writer(f).writerow(["GameID", "SAGE_Final_SC", "SAGE_Survived", "Winner_Architecture"])
+            csv.writer(f).writerow(["GameID", "RISE_Final_SC", "RISE_Survived", "Winner_Architecture"])
         with open(self.turn_log_path, "w", newline="", encoding="utf-8") as f:
             csv.writer(f).writerow([
                 "GameID",
@@ -110,7 +110,7 @@ class DiplomacyTournamentRunner:
     async def _run_single_game(self, game_id: int) -> None:
         game = Game(map_name="standard")
         self._sys_log(f"第{game_id}局开始：地图=standard 参赛方数量={len(PLAYERS)}")
-        sage = SAGEAgent(
+        sage = RISEAgent(
             country_name="England",
             other_countries=[p for p in PLAYERS if p != "England"],
             game_attributes={"max_rounds": self.config.rounds_per_game},
@@ -269,7 +269,7 @@ class DiplomacyTournamentRunner:
     async def _gather_orders(
         self,
         game: Any,
-        sage: SAGEAgent,
+        sage: RISEAgent,
         baselines: Dict[str, BaselineAgent],
         game_id: int,
         round_no: int,
@@ -300,7 +300,7 @@ class DiplomacyTournamentRunner:
         try:
             set_llm_log_context({
                 "scenario": "diplomacy",
-                "role": "sage",
+                "role": "rise",
                 "country": "England",
                 "game_id": game_id,
                 "round": round_no,
@@ -314,7 +314,7 @@ class DiplomacyTournamentRunner:
         try:
             set_llm_log_context({
                 "scenario": "diplomacy",
-                "role": "sage",
+                "role": "rise",
                 "country": "England",
                 "game_id": game_id,
                 "round": round_no,
@@ -343,7 +343,7 @@ class DiplomacyTournamentRunner:
         try:
             set_llm_log_context({
                 "scenario": "diplomacy",
-                "role": "sage",
+                "role": "rise",
                 "country": "England",
                 "game_id": game_id,
                 "round": round_no,
@@ -359,7 +359,7 @@ class DiplomacyTournamentRunner:
 
         england_concrete_orders: List[str] = []
         if isinstance(decision, dict) and decision.get("concrete_orders_error"):
-            self._append_warning(game_id, round_no, "England", "SAGE", "concrete_orders", str(decision.get("concrete_orders_error")))
+            self._append_warning(game_id, round_no, "England", "RISE", "concrete_orders", str(decision.get("concrete_orders_error")))
         if isinstance(decision, dict) and isinstance(decision.get("concrete_orders"), list):
             england_concrete_orders = [str(o) for o in decision.get("concrete_orders") if isinstance(o, str)]
         elif getattr(sage, "get_last_concrete_orders", None):
@@ -390,7 +390,7 @@ class DiplomacyTournamentRunner:
 
     async def _post_round_updates(
         self,
-        sage: SAGEAgent,
+        sage: RISEAgent,
         baselines: Dict[str, BaselineAgent],
         orders: Dict[str, str],
         state: Dict[str, Any],
@@ -467,7 +467,7 @@ class DiplomacyTournamentRunner:
         england_sc = sc_map.get("England", 0)
         survived = england_sc > 0
         winner = max(sc_map.items(), key=lambda item: item[1])[0]
-        winner_arch = "SAGE" if winner == "England" else getattr(baselines.get(winner), "baseline_type", "Unknown")
+        winner_arch = "RISE" if winner == "England" else getattr(baselines.get(winner), "baseline_type", "Unknown")
         with open(self.rq3_path, "a", newline="", encoding="utf-8") as f:
             csv.writer(f).writerow([game_id, england_sc, survived, winner_arch])
 
@@ -678,4 +678,4 @@ async def run_tournament(config: TournamentConfig) -> None:
     runner = DiplomacyTournamentRunner(config)
     await runner.run()
 
-# DEFAULT_SAGE_LLM_MODEL = "qwen3-max"
+# DEFAULT_RISE_LLM_MODEL = "qwen3-max"

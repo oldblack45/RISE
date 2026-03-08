@@ -1,5 +1,5 @@
-"""SAGE Agent – Strategic Autonomous Game-theoretic Engine
-=============================================================
+"""RISE Agent – From Hindsight to Foresight via Structured Cognitive Evolution
+=============================================================================
 
 A closed-loop agent decision-making framework for non-stationary social
 simulations that decouples internal cognitive reasoning from the external
@@ -369,11 +369,11 @@ class SocialInvolutionAdapter(ScenarioAdapter):
 
 
 # ============================================================================
-#  §4  SAGE Agent – Core Decision Engine
+#  §4  RISE Agent – Core Decision Engine
 # ============================================================================
 
-class SAGEAgent(LLMAgent):
-    """SAGE Agent – BFS Expectimax decision engine.
+class RISEAgent(LLMAgent):
+    """RISE Agent – BFS Expectimax decision engine.
 
     Implements Algorithm 1: Decision Loop via BFS-based Hypothetical
     Reasoning with four-stage closed-loop architecture.
@@ -411,7 +411,7 @@ class SAGEAgent(LLMAgent):
         risk_threshold: float = 0.7,
     ):
         super().__init__(
-            agent_name=f"SAGE_{country_name}",
+            agent_name=f"RISE_{country_name}",
             has_chat_history=False,
             llm_model=llm_model or "gemma3:27b-q8",
             online_track=False,
