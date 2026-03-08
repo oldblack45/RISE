@@ -377,3 +377,123 @@ class EvoBaselineAgent(_LLMBaselineBase):
             updated = str(result.get("world_model_state", "")).strip()
             if updated:
                 self.memory.world_model_state = updated
+
+
+class HypotheticalMindsBaselineAgent(_LLMBaselineBase):
+    """Hypothetical Minds: Theory-of-Mind 驱动的基线。
+
+    核心：为每个对手维护心智模型 (Mental Model)，对候选动作进行
+    对手响应模拟 (Mental Simulation)，选择预期效用最高的动作。
+    """
+
+    def __init__(self, name: str, llm_model: Optional[str] = None):
+        super().__init__(name=name, baseline_type="HypotheticalMinds", llm_model=llm_model)
+        # ToM: 每个对手的行动历史和推断
+        self._tom: Dict[str, Dict[str, Any]] = {}  # country -> {history, goal, tendency}
+
+    def _ensure_tom(self, country: str) -> Dict[str, Any]:
+        if country not in self._tom:
+            self._tom[country] = {
+                "history": [],
+                "goal": "unknown",
+                "tendency": "unknown",
+            }
+        return self._tom[country]
+
+    def _propose_orders_sync(self, game_view: Dict[str, Any]) -> str:
+        state = game_view.get("state") or {}
+        last_orders = game_view.get("last_orders") or {}
+        last_feedback = game_view.get("last_feedback") or {}
+        tension = float(game_view.get("tension", 0.5))
+
+        # 更新 ToM 模型
+        for country, action in last_orders.items():
+            if country != self.name and isinstance(action, str):
+                tom = self._ensure_tom(country)
+                tom["history"].append(action)
+                tom["history"] = tom["history"][-8:]  # 窗口
+
+        # 构建 ToM 摘要
+        tom_lines = []
+        for country, model in self._tom.items():
+            recent = model["history"][-4:]
+            tom_lines.append(
+                f"{country}: recent={recent}, "
+                f"goal={model['goal']}, tendency={model['tendency']}"
+            )
+        tom_text = _escape_curly("\n".join(tom_lines)) if tom_lines else "(no ToM data yet)"
+
+        system_template = (
+            "You are a Diplomacy baseline agent implementing Hypothetical Minds. "
+            "You build Theory-of-Mind models of opponents and mentally simulate "
+            "their responses to your candidate actions before choosing."
+        )
+
+        user_template = (
+            f"You are {self.name}.\n"
+            f"{_safe_compact_state(state, self.name)}\n"
+            f"Tension={tension:.2f}\n"
+            f"LastTurnOrders={_dump(last_orders)}\n"
+            f"LastTurnFeedback={_dump(last_feedback)}\n"
+            f"\n[Theory of Mind Models]\n{tom_text}\n\n"
+            "Step 1: Update your mental models of opponents (inferred goals and tendencies).\n"
+            "Step 2: Consider 2-3 candidate actions and mentally simulate opponent responses.\n"
+            "Step 3: Pick the action with the best expected outcome.\n\n"
+            f"abstract_action must be one of: {ACTIONS}.\n"
+            "Return JSON:\n"
+            "{{\"tom_updates\": [{{\"agent\": \"...\", \"inferred_goal\": \"...\", "
+            "\"tendency\": \"...\"}}], "
+            "\"candidate_evaluations\": [{{\"action\": \"...\", \"predicted_responses\": "
+            "{{\"country\": \"action\"}}, \"expected_utility\": 0.0}}], "
+            "\"abstract_action\": \"...\", \"rationale\": \"...\"}}"
+        )
+
+        result = self._llm.get_response(
+            user_template=user_template,
+            new_system_template=system_template,
+            input_param_dict={},
+            is_first_call=False,
+            flag_debug_print=False,
+        )
+        if isinstance(result, Exception):
+            raise result
+
+        # 应用 ToM 更新
+        if isinstance(result, dict):
+            for update in result.get("tom_updates", []):
+                agent_id = update.get("agent", "")
+                if agent_id:
+                    tom = self._ensure_tom(agent_id)
+                    tom["goal"] = update.get("inferred_goal", tom["goal"])
+                    tom["tendency"] = update.get("tendency", tom["tendency"])
+
+        action = _coerce_action(result.get("abstract_action") if isinstance(result, dict) else None)
+        self.last_order = action
+        self.memory.last_actions.append(action)
+        return action
+
+    def post_round_update(self, game_view: Dict[str, Any], feedback_label: str, sc_delta: int) -> None:
+        try:
+            set_llm_log_context({
+                "scenario": "diplomacy",
+                "role": "baseline",
+                "baseline_type": self.baseline_type,
+                "country": self.name,
+                "round": game_view.get("round"),
+                "phase": (game_view.get("state") or {}).get("name"),
+                "stage": "post_round_update",
+                "feedback": feedback_label,
+                "sc_delta": sc_delta,
+            })
+        except Exception:
+            pass
+        # 仅在 SC 变化时进行 ToM 反思
+        if sc_delta == 0:
+            return
+
+        last_orders = game_view.get("last_orders") or {}
+        for country, action in last_orders.items():
+            if country != self.name and isinstance(action, str):
+                tom = self._ensure_tom(country)
+                tom["history"].append(action)
+                tom["history"] = tom["history"][-8:]

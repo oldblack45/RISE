@@ -18,7 +18,12 @@ from typing import Any, Dict, List, Optional, Tuple
 from diplomacy import Game
 
 from agents.rise_agent import RISEAgent
-from agents.diplomacy_baselines import EvoBaselineAgent, ReActBaselineAgent, ReflexionBaselineAgent
+from agents.diplomacy_baselines import (
+    EvoBaselineAgent,
+    HypotheticalMindsBaselineAgent,
+    ReActBaselineAgent,
+    ReflexionBaselineAgent,
+)
 from simulation.models.agents.LLMAgent import reset_llm_call_stats, set_llm_log_context, snapshot_llm_call_stats
 
 AGGRESSIVE_ACTIONS = {"ATTACK", "SUPPORT_ATTACK"}
@@ -26,7 +31,7 @@ AGGRESSIVE_ACTIONS = {"ATTACK", "SUPPORT_ATTACK"}
 # ---------------------------------------------------------------------------
 # Baseline personas and architectures -------------------------------------------------
 
-BASELINE_TYPES = ["ReAct", "Reflexion", "EvoAgent"]
+BASELINE_TYPES = ["ReAct", "Reflexion", "EvoAgent", "HypotheticalMinds"]
 PLAYERS = ["England", "France", "Germany", "Italy", "Austria", "Russia", "Turkey"]
 
 
@@ -262,6 +267,8 @@ class DiplomacyTournamentRunner:
                 agents[player] = ReActBaselineAgent(player, llm_model=self.config.llm_model)
             elif baseline_type == "Reflexion":
                 agents[player] = ReflexionBaselineAgent(player, llm_model=self.config.llm_model)
+            elif baseline_type == "HypotheticalMinds":
+                agents[player] = HypotheticalMindsBaselineAgent(player, llm_model=self.config.llm_model)
             else:
                 agents[player] = EvoBaselineAgent(player, llm_model=self.config.llm_model)
         return agents

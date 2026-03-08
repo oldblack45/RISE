@@ -1,21 +1,21 @@
-"""SociologyAgent – Bridge between RISE Agent and SocialInvolution Rider
-=======================================================================
+"""SociologyAgent – Bridge between Agent frameworks and SocialInvolution Rider
+=============================================================================
 
-Provides the ``RiderLLMAgent`` mixin class that the existing
-``simulation.SocialInvolution.entity.rider.Rider`` imports.
+Provides mixin classes that ``simulation.SocialInvolution.entity.rider.Rider``
+can inherit from.  Each mixin instantiates a different decision engine:
 
-The mixin instantiates two RISE engines internally:
-    * ``_rise_time``  – for daily work-hour decisions  (decide_time)
-    * ``_rise_order`` – for order-selection decisions   (take_order)
-
-Both engines use the BFS Expectimax architecture with a
-``SocialInvolutionAdapter`` tailored to the delivery-platform scenario.
+    * ``RiderLLMAgent``            – RISE Agent (OODA + BFS Expectimax)
+    * ``RiderReActAgent``          – ReAct baseline
+    * ``RiderEvoAgent``            – EvoAgent baseline
+    * ``RiderHypotheticalMinds``   – Hypothetical Minds baseline (ToM)
+    * ``RiderGreedyHeuristic``     – Greedy heuristic baseline (no LLM)
 """
 
 from __future__ import annotations
 
 import json
 import math
+import random
 from typing import Any, Dict, List, Optional, Tuple
 
 
@@ -286,3 +286,326 @@ class RiderLLMAgent:
             if isinstance(oid, int) and oid not in selected:
                 selected.append(oid)
         return selected
+
+
+# ======================================================================
+#  Time action mapping (shared across all rider mixins)
+# ======================================================================
+_TIME_ACTIONS = ["EARLY_LONG", "EARLY_NORMAL", "NORMAL",
+                 "NORMAL_LATE", "LATE_LONG", "SHORT"]
+_TIME_MAP: Dict[str, Tuple[int, int]] = {
+    "EARLY_LONG":   (6, 20),
+    "EARLY_NORMAL": (6, 18),
+    "NORMAL":       (8, 18),
+    "NORMAL_LATE":  (8, 20),
+    "LATE_LONG":    (10, 22),
+    "SHORT":        (10, 16),
+}
+_ORDER_ACTIONS = ["TAKE_HIGHEST_VALUE", "TAKE_NEAREST",
+                  "TAKE_BALANCED", "TAKE_VOLUME", "SKIP"]
+
+
+def _parse_order_list(info: Dict[str, Any]) -> Tuple[list, Tuple, int]:
+    """Extract order_list, location, max_take from info dict."""
+    order_list = info.get("order_list", [])
+    now_loc = info.get("now_location", (0, 0))
+    max_take = int(info.get("accept_count", 1))
+    raw_items = (list(order_list.items())
+                 if isinstance(order_list, dict) else list(order_list))
+    return raw_items, now_loc, max_take
+
+
+# ======================================================================
+#  ReAct Rider Mixin
+# ======================================================================
+
+class RiderReActAgent:
+    """ReAct baseline for SocialInvolution riders.
+
+    Short-horizon reasoning: observe current state, think, act.
+    No world model or opponent modeling.
+    """
+
+    def __init__(self, role_param_dict: Optional[Dict[str, Any]] = None):
+        self._role_params: Dict[str, Any] = role_param_dict or {}
+        self._react_llm: Any = None
+        self._react_initialized: bool = False
+        self._prev_money_react: float = 0.0
+
+    def _ensure_react_init(self) -> None:
+        if self._react_initialized:
+            return
+        from simulation.models.agents.LLMAgent import LLMAgent
+        llm_model = (self._role_params.get("llm_model", "gemma3:27b-q8")
+                     if self._role_params else "gemma3:27b-q8")
+        rider_id = getattr(self, "id", 0)
+        self._react_llm = LLMAgent(
+            agent_name=f"ReAct_rider_{rider_id}",
+            has_chat_history=False,
+            llm_model=llm_model,
+            online_track=False,
+            json_format=True,
+        )
+        self._react_initialized = True
+
+    def decide_time(self, runner_step: int, info: Dict[str, Any]) -> Tuple[int, int]:
+        self._ensure_react_init()
+        prompt = (
+            f"You are a delivery rider deciding work hours.\n"
+            f"Current schedule: {info.get('before_go_work_time',8)}:00 to "
+            f"{info.get('before_get_off_work_time',18)}:00\n"
+            f"Your rank: orders={info.get('order_rank',0)}, "
+            f"money={info.get('money_rank',0)}, distance={info.get('dis_rank',0)}\n"
+            f"Total riders: {info.get('rider_num',100)}\n\n"
+            f"Choose a work schedule. Options: {list(_TIME_MAP.keys())}\n"
+            "Return JSON: {{\"schedule\": \"OPTION_NAME\", \"reasoning\": \"...\"}}"
+        )
+        try:
+            resp = self._react_llm.get_response(prompt, flag_debug_print=False)
+            if isinstance(resp, dict):
+                action = resp.get("schedule", "NORMAL")
+                if action in _TIME_MAP:
+                    return _TIME_MAP[action]
+        except Exception:
+            pass
+        return 8, 18
+
+    def take_order(self, runner_step: int, info: Dict[str, Any]) -> List[int]:
+        self._ensure_react_init()
+        raw_items, now_loc, max_take = _parse_order_list(info)
+        if not raw_items:
+            return []
+
+        prompt = (
+            f"You are a delivery rider at location {now_loc}. "
+            f"Choose an order selection strategy.\n"
+            f"Options: {_ORDER_ACTIONS}\n"
+            "Return JSON: {{\"strategy\": \"OPTION_NAME\"}}"
+        )
+        try:
+            resp = self._react_llm.get_response(prompt, flag_debug_print=False)
+            if isinstance(resp, dict):
+                strategy = resp.get("strategy", "TAKE_BALANCED")
+                if strategy in _ORDER_ACTIONS:
+                    return RiderLLMAgent._resolve_orders(strategy, raw_items, now_loc, max_take)
+        except Exception:
+            pass
+        return RiderLLMAgent._resolve_orders("TAKE_BALANCED", raw_items, now_loc, max_take)
+
+
+# ======================================================================
+#  EvoAgent Rider Mixin
+# ======================================================================
+
+class RiderEvoAgent:
+    """EvoAgent baseline for SocialInvolution riders.
+
+    Maintains a population of strategy configurations and evolves
+    them based on performance feedback.
+    """
+
+    def __init__(self, role_param_dict: Optional[Dict[str, Any]] = None):
+        self._role_params: Dict[str, Any] = role_param_dict or {}
+        self._evo_llm: Any = None
+        self._evo_initialized: bool = False
+        # Strategy population: list of {schedule, order_strategy, fitness}
+        self._strategies: List[Dict[str, Any]] = []
+        self._current_strategy: Optional[Dict[str, Any]] = None
+        self._evo_generation: int = 0
+        self._prev_money_evo: float = 0.0
+
+    def _ensure_evo_init(self) -> None:
+        if self._evo_initialized:
+            return
+        from simulation.models.agents.LLMAgent import LLMAgent
+        llm_model = (self._role_params.get("llm_model", "gemma3:27b-q8")
+                     if self._role_params else "gemma3:27b-q8")
+        rider_id = getattr(self, "id", 0)
+        self._evo_llm = LLMAgent(
+            agent_name=f"Evo_rider_{rider_id}",
+            has_chat_history=False,
+            llm_model=llm_model,
+            online_track=False,
+            json_format=True,
+        )
+        # Initialize population
+        self._strategies = [
+            {"schedule": "EARLY_LONG", "order_strategy": "TAKE_VOLUME", "fitness": 0.5},
+            {"schedule": "NORMAL", "order_strategy": "TAKE_BALANCED", "fitness": 0.5},
+            {"schedule": "NORMAL_LATE", "order_strategy": "TAKE_HIGHEST_VALUE", "fitness": 0.5},
+            {"schedule": "SHORT", "order_strategy": "TAKE_NEAREST", "fitness": 0.5},
+            {"schedule": "EARLY_NORMAL", "order_strategy": "TAKE_BALANCED", "fitness": 0.5},
+        ]
+        self._evo_initialized = True
+
+    def _select_strategy(self) -> Dict[str, Any]:
+        total = sum(s["fitness"] for s in self._strategies)
+        if total <= 0:
+            return random.choice(self._strategies)
+        r = random.random() * total
+        cumul = 0.0
+        for s in self._strategies:
+            cumul += s["fitness"]
+            if cumul >= r:
+                return s
+        return self._strategies[-1]
+
+    def _evolve(self) -> None:
+        self._evo_generation += 1
+        self._strategies.sort(key=lambda s: s["fitness"], reverse=True)
+        elite = self._strategies[:3]
+        # Mutate top strategy
+        if elite:
+            mutant = dict(elite[0])
+            mutant["schedule"] = random.choice(_TIME_ACTIONS)
+            mutant["order_strategy"] = random.choice(_ORDER_ACTIONS[:-1])  # exclude SKIP
+            mutant["fitness"] = elite[0]["fitness"] * 0.8
+            self._strategies = elite + [mutant, dict(elite[-1])]
+
+    def decide_time(self, runner_step: int, info: Dict[str, Any]) -> Tuple[int, int]:
+        self._ensure_evo_init()
+        # Update fitness based on income change
+        cur_money = float(getattr(self, "money", 0))
+        if self._current_strategy and cur_money != self._prev_money_evo:
+            delta = cur_money - self._prev_money_evo
+            reward = min(1.0, max(0.0, 0.5 + delta / 100.0))
+            self._current_strategy["fitness"] = (
+                0.3 * reward + 0.7 * self._current_strategy["fitness"]
+            )
+        self._prev_money_evo = cur_money
+
+        # Evolve every 3 days
+        if runner_step > 0 and self._evo_generation < runner_step // getattr(self, "one_day", 480) // 3:
+            self._evolve()
+
+        self._current_strategy = self._select_strategy()
+        sched = self._current_strategy.get("schedule", "NORMAL")
+        return _TIME_MAP.get(sched, (8, 18))
+
+    def take_order(self, runner_step: int, info: Dict[str, Any]) -> List[int]:
+        self._ensure_evo_init()
+        raw_items, now_loc, max_take = _parse_order_list(info)
+        if not raw_items:
+            return []
+        strategy = (self._current_strategy or {}).get("order_strategy", "TAKE_BALANCED")
+        if strategy == "SKIP":
+            return []
+        return RiderLLMAgent._resolve_orders(strategy, raw_items, now_loc, max_take)
+
+
+# ======================================================================
+#  Hypothetical Minds Rider Mixin
+# ======================================================================
+
+class RiderHypotheticalMinds:
+    """Hypothetical Minds baseline for SocialInvolution riders.
+
+    Uses Theory of Mind to model competitor riders and predict their
+    impact on order availability and earnings.
+    """
+
+    def __init__(self, role_param_dict: Optional[Dict[str, Any]] = None):
+        self._role_params: Dict[str, Any] = role_param_dict or {}
+        self._hm_llm: Any = None
+        self._hm_initialized: bool = False
+        # ToM: simplified model of competitor behavior
+        self._competitor_model: Dict[str, Any] = {
+            "avg_start": 8, "avg_end": 18,
+            "popular_strategy": "TAKE_BALANCED",
+            "competition_level": "moderate",
+        }
+
+    def _ensure_hm_init(self) -> None:
+        if self._hm_initialized:
+            return
+        from simulation.models.agents.LLMAgent import LLMAgent
+        llm_model = (self._role_params.get("llm_model", "gemma3:27b-q8")
+                     if self._role_params else "gemma3:27b-q8")
+        rider_id = getattr(self, "id", 0)
+        self._hm_llm = LLMAgent(
+            agent_name=f"HM_rider_{rider_id}",
+            has_chat_history=False,
+            llm_model=llm_model,
+            online_track=False,
+            json_format=True,
+        )
+        self._hm_initialized = True
+
+    def decide_time(self, runner_step: int, info: Dict[str, Any]) -> Tuple[int, int]:
+        self._ensure_hm_init()
+        comp = self._competitor_model
+        prompt = (
+            f"You are a delivery rider deciding work hours using Theory of Mind.\n"
+            f"Current schedule: {info.get('before_go_work_time',8)}:00 - "
+            f"{info.get('before_get_off_work_time',18)}:00\n"
+            f"Your rank: orders={info.get('order_rank',0)}, "
+            f"money={info.get('money_rank',0)}\n"
+            f"Competitor model: avg_start={comp['avg_start']}, "
+            f"avg_end={comp['avg_end']}, competition={comp['competition_level']}\n\n"
+            f"Mentally simulate: if most competitors work {comp['avg_start']}-"
+            f"{comp['avg_end']}, what schedule avoids peak competition?\n"
+            f"Options: {list(_TIME_MAP.keys())}\n"
+            "Return JSON: {{\"schedule\": \"OPTION\", \"predicted_competition\": \"low/medium/high\"}}"
+        )
+        try:
+            resp = self._hm_llm.get_response(prompt, flag_debug_print=False)
+            if isinstance(resp, dict):
+                action = resp.get("schedule", "NORMAL")
+                comp_level = resp.get("predicted_competition", "moderate")
+                self._competitor_model["competition_level"] = comp_level
+                if action in _TIME_MAP:
+                    return _TIME_MAP[action]
+        except Exception:
+            pass
+        return 8, 18
+
+    def take_order(self, runner_step: int, info: Dict[str, Any]) -> List[int]:
+        self._ensure_hm_init()
+        raw_items, now_loc, max_take = _parse_order_list(info)
+        if not raw_items:
+            return []
+
+        comp = self._competitor_model
+        prompt = (
+            f"You are a delivery rider at {now_loc}. "
+            f"Competitors mostly use {comp['popular_strategy']} strategy. "
+            f"Competition level: {comp['competition_level']}.\n"
+            f"Mentally simulate competitor choices, then pick a counter-strategy.\n"
+            f"Options: {_ORDER_ACTIONS}\n"
+            "Return JSON: {{\"strategy\": \"OPTION\"}}"
+        )
+        try:
+            resp = self._hm_llm.get_response(prompt, flag_debug_print=False)
+            if isinstance(resp, dict):
+                strategy = resp.get("strategy", "TAKE_BALANCED")
+                if strategy in _ORDER_ACTIONS:
+                    if strategy == "SKIP":
+                        return []
+                    return RiderLLMAgent._resolve_orders(strategy, raw_items, now_loc, max_take)
+        except Exception:
+            pass
+        return RiderLLMAgent._resolve_orders("TAKE_BALANCED", raw_items, now_loc, max_take)
+
+
+# ======================================================================
+#  Greedy Heuristic Rider Mixin (no LLM)
+# ======================================================================
+
+class RiderGreedyHeuristic:
+    """Greedy heuristic baseline — no LLM calls.
+
+    Time decision: always works the longest hours.
+    Order decision: always picks highest-value orders.
+    """
+
+    def __init__(self, role_param_dict: Optional[Dict[str, Any]] = None):
+        pass
+
+    def decide_time(self, runner_step: int, info: Dict[str, Any]) -> Tuple[int, int]:
+        return 6, 20  # EARLY_LONG — maximize work time
+
+    def take_order(self, runner_step: int, info: Dict[str, Any]) -> List[int]:
+        raw_items, now_loc, max_take = _parse_order_list(info)
+        if not raw_items:
+            return []
+        return RiderLLMAgent._resolve_orders("TAKE_HIGHEST_VALUE", raw_items, now_loc, max_take)

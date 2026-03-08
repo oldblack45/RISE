@@ -529,7 +529,3 @@ class EvoAgent(LLMAgent):
         """获取当前最佳策略"""
         best = self.evolution_engine.get_best_strategy()
         return best.to_dict() if best else None
-
-
-# 为了向后兼容，保留HypotheticalMindsAgent作为别名
-HypotheticalMindsAgent = EvoAgent
