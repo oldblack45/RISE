@@ -59,7 +59,7 @@ def main() -> None:
         subset = df[df['Target_Persona'] == persona]
         # 计算每轮的平均值（因为可能有多个 GameID）
         mean_line = subset.groupby('Round')['Prediction_Accuracy'].mean()
-        ax.plot(mean_line.index, mean_line.values, 
+        ax.plot(mean_line.index.to_numpy(), mean_line.values, 
                 color=palette[i], alpha=0.3, linewidth=1, linestyle='-', label=f'vs {persona}')
 
     # 5. 绘制全局平均线 (The Hero Line) - 带置信区间

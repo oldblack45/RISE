@@ -4,68 +4,24 @@ import numpy as np
 from math import pi
 
 # ==========================================
-# 1. Hardcoded Data
+# 1. Raw Data
 # ==========================================
-# dip_raw ={
-#   "Full_Model": [
-#     0.7,
-#     1.0,
-#     5.6
-#   ],
-#   "w/o_Observe": [
-#     0.4,
-#     1.0,
-#     4.4
-#   ],
-#   "w/o_Orient": [
-#     0.7,
-#     1.0,
-#     4.9
-#   ],
-#   "w/o_Decide": [
-#     0.8,
-#     1.0,
-#     5.3
-#   ],
-#   "w/o_All": [
-#     1.0,
-#     1.0,
-#     6.3
-#   ]
-# }
-dip_raw =  {
-  "Full_Model": [
-    0.7,
-    1.0,
-    5.6
-  ],
-  "w/o_Observe": [
-    0.6,
-    0.5,
-    4.8
-  ],
-  "w/o_Orient": [
-    0.2,
-    1.0,
-    3.5
-  ],
-  "w/o_Decide": [
-    0.3,
-    0.8,
-    4.9
-  ],
-  "w/o_All": [
-    0.1,
-    0.3,
-    2.5
-  ]
+# Macro: Diplomacy  (Win%, Surv%, SCs)
+dip_raw = {
+    'Full_Model':      [0.7,  1.0,  5.6],
+    'w/o_WorldModel':  [0.2,  1.0,  3.5],
+    'w/o_Reasoning':   [0.3,  0.8,  4.9],
+    'w/o_Utility':     [0.6,  0.5,  4.8],
+    'w/o_All':         [0.1,  0.3,  2.5],
 }
-cmc_raw = {
-    'RISE': [0.65, 1.00, 0.81],
-    'w/o world model': [0.63, 0.75, 0.73],
-    'w/o agent profiling': [0.64, 0.50, 0.51],
-    'w/o reasoning': [0.58, 0.50, 0.49],
-    'w/o all': [0.51, 0.40, 0.45]
+
+# Micro: Delivery  (Prof, P/D, Ful%)
+del_raw = {
+    'Full_Model':      [315.4, 65.5, 98.2],
+    'w/o_WorldModel':  [250.2, 52.1, 88.5],
+    'w/o_Reasoning':   [275.6, 48.3, 85.0],
+    'w/o_Utility':     [290.1, 58.4, 60.5],
+    'w/o_All':         [210.5, 38.0, 68.5],
 }
 
 # ==========================================
@@ -76,39 +32,39 @@ dip_norm = {}
 for k, v in dip_raw.items():
     dip_norm[k] = (np.array(v) / (dip_base + 1e-9)).tolist()
 
-cmc_base = np.array(cmc_raw['RISE'])
-cmc_norm = {}
-for k, v in cmc_raw.items():
-    cmc_norm[k] = (np.array(v) / (cmc_base + 1e-9)).tolist()
+del_base = np.array(del_raw['Full_Model'])
+del_norm = {}
+for k, v in del_raw.items():
+    del_norm[k] = (np.array(v) / (del_base + 1e-9)).tolist()
 
 # ==========================================
 # 3. Plotting Configuration
 # ==========================================
 plot_mapping = {
-    'w/o Agent Profiling\n(No Observe)': ('w/o agent profiling', 'w/o_Observe'),
-    'w/o Reasoning\n(No Orient)': ('w/o reasoning', 'w/o_Orient'),
-    'w/o World Model\n(No Decide)': ('w/o world model', 'w/o_Decide'),
-    'w/o All\n(Baseline)': ('w/o all', 'w/o_All')
+    'w/o World Model':  ('w/o_WorldModel', 'w/o_WorldModel'),
+    'w/o Reasoning':    ('w/o_Reasoning',  'w/o_Reasoning'),
+    'w/o Utility':      ('w/o_Utility',    'w/o_Utility'),
+    'w/o All': ('w/o_All',     'w/o_All'),
 }
 
 colors = ['#3498DB', '#F1C40F', '#9B59B6', '#34495E']
-metrics_cmc = ['AS', 'OM', 'EA']
-metrics_dip = ['Win', 'Surv', 'SC']
-categories = metrics_cmc + metrics_dip
+metrics_dip = ['Win', 'Surv', 'SCs']
+metrics_del = ['Prof', 'P/D', 'Ful']
+categories = metrics_dip + metrics_del
 N = len(categories)
 
 angles = [n / float(N) * 2 * pi for n in range(N)]
 angles += angles[:1]
 
 # Set global font size
-plt.rcParams.update({'font.size': 12, 'font.weight': 'bold'})
+plt.rcParams.update({'font.size': 16, 'font.weight': 'bold'})
 
 fig, axes = plt.subplots(2, 2, figsize=(12, 12), subplot_kw={'projection': 'polar'})
 plt.subplots_adjust(wspace=0.35, hspace=0.45)  # Increase hspace for titles
 
 
-def create_hex_radar(ax, title, cmc_key, dip_key, color):
-    # Rotate 240 degrees (4*pi/3) so Left=CMC, Right=Dip
+def create_hex_radar(ax, title, dip_key, del_key, color):
+    # Rotate 240 degrees (4*pi/3) so Left=Dip, Right=Del
     ax.set_theta_offset(4 * pi / 3)
     ax.set_theta_direction(-1)
 
@@ -116,8 +72,8 @@ def create_hex_radar(ax, title, cmc_key, dip_key, color):
     ax.grid(False)
     ax.set_yticklabels([])
 
-    c_data = cmc_norm[cmc_key]
-    d_data = dip_norm[dip_key]
+    c_data = dip_norm[dip_key]
+    d_data = del_norm[del_key]
     max_val = max(max(c_data), max(d_data))
 
     ticks = [0.25, 0.50, 0.75, 1.00]
@@ -135,10 +91,10 @@ def create_hex_radar(ax, title, cmc_key, dip_key, color):
 
     ax.plot(angles, [ticks[-1]] * (N + 1), color='black', linewidth=1.5)
 
-    # Left Zone (CMC)
+    # Left Zone (Diplomacy - Macro)
     ax.fill_between(np.linspace(-pi / 6, 5 * pi / 6, 100), 0, ticks[-1] * 1.1, color='#3498DB', alpha=0.1)
 
-    # Right Zone (Dip)
+    # Right Zone (Delivery - Micro)
     ax.fill_between(np.linspace(5 * pi / 6, 11 * pi / 6, 100), 0, ticks[-1] * 1.1, color='#E74C3C', alpha=0.1)
 
     # Plot Full Model
@@ -153,37 +109,39 @@ def create_hex_radar(ax, title, cmc_key, dip_key, color):
 
     # Axis Labels - BOLD and LARGER
     ax.set_xticks(angles[:-1])
-    ax.set_xticklabels(categories, size=11, weight='bold')
+    ax.set_xticklabels(categories, size=16, weight='bold')
     ax.tick_params(pad=8)  # Move labels out further
 
     # Percentage Labels
     for t in ticks:
         if t <= 1.5:
             # Place on 'Win' axis (Index 3)
-            ax.text(angles[3], t, f"{int(t * 100)}%", ha='center', va='bottom', fontsize=9, fontweight='bold',
+            ax.text(angles[3], t, f"{int(t * 100)}%", ha='center', va='bottom', fontsize=16, fontweight='bold',
                     color='gray')
 
-    ax.set_title(title, size=14, weight='bold', y=1.12, color='#333')  # Larger Title
+    ax.set_title(title, size=20, weight='bold', y=1.12, color='#333')
     ax.set_ylim(0, ticks[-1])
 
 
-for i, (title, (c_key, d_key)) in enumerate(plot_mapping.items()):
+for i, (title, (dip_key, del_key)) in enumerate(plot_mapping.items()):
     ax = axes.flat[i]
-    create_hex_radar(ax, title, c_key, d_key, colors[i])
+    create_hex_radar(ax, title, dip_key, del_key, colors[i])
 
 # ==========================================
 # 4. Improved Legend
 # ==========================================
 # Create custom legend handles
-blue_patch = mpatches.Patch(color='#3498DB', alpha=0.2, label='Macro: CMC')
-red_patch = mpatches.Patch(color='#E74C3C', alpha=0.2, label='Micro: Diplomacy')
-gray_line = plt.Line2D([0], [0], color='gray', linestyle='--', linewidth=2, label='Full RISE Model')
-variant_line = plt.Line2D([0], [0], color='black', linewidth=3, marker='o',
-                          label='Ablated Variant')  # Generic black for legend
+blue_patch = mpatches.Patch(color='#3498DB', alpha=0.2, label='Macro: Diplomacy')
+red_patch = mpatches.Patch(color='#E74C3C', alpha=0.2, label='Micro: Delivery')
+# gray_line = plt.Line2D([0], [0], color='gray', linestyle='--', linewidth=2, label='Full RISE Model')
+# variant_line = plt.Line2D([0], [0], color='black', linewidth=3, marker='o',
+#                           label='Ablated Variant')  # Generic black for legend
 
 # Place legend at the top or bottom, centered
-fig.legend(handles=[blue_patch, red_patch, gray_line, variant_line],
-           loc='lower center', ncol=4, fontsize=12, frameon=False, bbox_to_anchor=(0.5, 0.02))
+legend = fig.legend(handles=[blue_patch, red_patch],
+           loc='lower center', ncol=4, fontsize=20, frameon=False, bbox_to_anchor=(0.5, 0.02))
+for text in legend.get_texts():
+    text.set_fontweight('bold')
 
 # plt.suptitle("Figure 7: Hexagonal Ablation Analysis (Bold & Enhanced)", fontsize=18, weight='bold', y=0.98)
 

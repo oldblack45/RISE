@@ -29,10 +29,12 @@ sns.lineplot(data=global_acc, x='Round', y='Prediction_Accuracy',
 sns.lineplot(data=persona_acc, x='Round', y='Prediction_Accuracy', hue='Target_Persona',
              style='Target_Persona', markers=True, dashes=False, linewidth=1.5, alpha=0.7)
 
-plt.xlabel('Game Rounds', fontsize=14, fontweight='bold')
-plt.ylabel('Prediction Accuracy', fontsize=14, fontweight='bold')
+plt.xlabel('Game Rounds', fontsize=18, fontweight='bold')
+plt.ylabel('Prediction Accuracy', fontsize=18, fontweight='bold')
+plt.xticks(fontsize=14)
+plt.yticks(fontsize=14)
 plt.ylim(0, 1.05)
-plt.legend(loc='lower right', prop={'weight': 'bold', 'size': 12})
+plt.legend(loc='lower right', prop={'weight': 'bold', 'size': 14})
 plt.grid(True, linestyle='--', alpha=0.7)
 
 # Save the plot to a file
