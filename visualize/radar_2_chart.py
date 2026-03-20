@@ -48,7 +48,7 @@ plot_mapping = {
 }
 
 colors = ['#3498DB', '#F1C40F', '#9B59B6', '#34495E']
-metrics_dip = ['Win', 'Surv', 'SCs']
+metrics_dip = ['Succ', 'Surv', 'Res']
 metrics_del = ['Prof', 'P/D', 'Ful']
 categories = metrics_dip + metrics_del
 N = len(categories)

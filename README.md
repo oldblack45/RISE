@@ -21,10 +21,10 @@ RISE/
 │
 ├── agents/                           # Agent implementations
 │   ├── rise_agent.py                 # RISE Agent (OODA loop + BFS Expectimax reasoning)
-│   ├── diplomacy_baselines.py        # Diplomacy baseline agents (ReAct / Reflexion / EvoAgent / Hypothetical Minds)
+│   ├── diplomacy_baselines.py        # Diplomacy baseline agents (ReAct / Reflexion / LATS / Hypothetical Minds)
 │   ├── hypothetical_minds_agent.py   # Independent Hypothetical Minds Agent (Theory of Mind framework)
 │   ├── ReActAgent.py                 # Independent ReAct reasoning agent
-│   ├── EvoAgent.py                   # Independent evolutionary strategy agent
+│   ├── LATSAgent.py                  # Independent Language Agent Tree Search agent
 │
 ├── simulation/                       # Simulation scenarios and core models
 │   ├── diplomacy/                    # Diplomacy game tournament
@@ -89,7 +89,7 @@ Based on the classic board game Diplomacy (no-press variant). The RISE Agent (pl
 |------|----------|------|
 | **ReAct** | Reasoning + Acting short-context reasoning | Tactically sharp but strategically short-sighted |
 | **Reflexion** | Actor + Reflector reflective learning | Extracts lessons from failures |
-| **EvoAgent** | Continuous world model + Narrative summary | Global state tracking |
+| **LATS** | Language Agent Tree Search | Joint reasoning, planning, and acting |
 | **Hypothetical Minds** | Theory of Mind + Mental simulation | Models opponent intent and simulates responses |
 
 **How to Run:**
@@ -120,7 +120,7 @@ Simulates riders' working hour decisions and order dispatching strategies in a d
 |------|----------|------|
 | **RISE** | `RiderLLMAgent` | OODA cognitive loop + BFS Expectimax reasoning |
 | **ReAct** | `RiderReActAgent` | Short-context LLM reasoning |
-| **EvoAgent** | `RiderEvoAgent` | Evolutionary strategy population |
+| **LATS** | `RiderLATSAgent` | Language-guided tree search for schedule & order decisions |
 | **Hypothetical Minds** | `RiderHypotheticalMinds` | Theory of Mind competitive modeling |
 | **Greedy Heuristic** | `RiderGreedyHeuristic` | Greedy heuristic (non-LLM) |
 
@@ -189,9 +189,9 @@ Reasoning + Acting paradigm. Uses a short context window (1-2 rounds) with few-s
 
 Actor-Reflector architecture. The Actor produces actions; when trigger conditions are met (e.g., reduction in supply centers, failed attacks), the Reflector generates lessons stored in long-term memory for future decision-making.
 
-### EvoAgent
+### LATS
 
-Evolutionary strategy framework. Maintains a continuously updated narrative summary of the world model. Uses an Updater to update global status and a Planner to plan current-round actions.
+Language Agent Tree Search framework. Expands candidate actions with LLM, runs simulation-based tree search to evaluate near-term and long-term payoff, and updates planning notes/world model from feedback.
 
 ### Greedy Heuristic
 

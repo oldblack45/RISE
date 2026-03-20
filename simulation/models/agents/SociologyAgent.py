@@ -6,7 +6,7 @@ can inherit from.  Each mixin instantiates a different decision engine:
 
     * ``RiderLLMAgent``            – RISE Agent (OODA + BFS Expectimax)
     * ``RiderReActAgent``          – ReAct baseline
-    * ``RiderEvoAgent``            – EvoAgent baseline
+    * ``RiderLATSAgent``           – LATS baseline
     * ``RiderHypotheticalMinds``   – Hypothetical Minds baseline (ToM)
     * ``RiderGreedyHeuristic``     – Greedy heuristic baseline (no LLM)
 """
@@ -394,102 +394,248 @@ class RiderReActAgent:
 
 
 # ======================================================================
-#  EvoAgent Rider Mixin
+#  LATS Rider Mixin
 # ======================================================================
 
-class RiderEvoAgent:
-    """EvoAgent baseline for SocialInvolution riders.
+class RiderLATSAgent:
+    """LATS baseline for SocialInvolution riders.
 
-    Maintains a population of strategy configurations and evolves
-    them based on performance feedback.
+    Uses Language Agent Tree Search to jointly reason, plan, and act:
+    1) LLM expands candidate actions.
+    2) LLM simulates short-horizon outcomes for candidates.
+    3) Select action by UCB-style tree search score.
     """
 
     def __init__(self, role_param_dict: Optional[Dict[str, Any]] = None):
         self._role_params: Dict[str, Any] = role_param_dict or {}
-        self._evo_llm: Any = None
-        self._evo_initialized: bool = False
-        # Strategy population: list of {schedule, order_strategy, fitness}
-        self._strategies: List[Dict[str, Any]] = []
-        self._current_strategy: Optional[Dict[str, Any]] = None
-        self._evo_generation: int = 0
-        self._prev_money_evo: float = 0.0
+        self._lats_llm: Any = None
+        self._lats_initialized: bool = False
+        self._lats_memory: Dict[str, Any] = {
+            "world_model": "Rider optimizes long-term earnings while controlling competition risk.",
+            "notes": [],
+        }
+        self._prev_money_lats: float = 0.0
+        self._last_order_strategy_lats: str = "TAKE_BALANCED"
 
-    def _ensure_evo_init(self) -> None:
-        if self._evo_initialized:
+    def _ensure_lats_init(self) -> None:
+        if self._lats_initialized:
             return
         from simulation.models.agents.LLMAgent import LLMAgent
         llm_model = (self._role_params.get("llm_model", "gemma3:27b-q8")
                      if self._role_params else "gemma3:27b-q8")
         rider_id = getattr(self, "id", 0)
-        self._evo_llm = LLMAgent(
-            agent_name=f"Evo_rider_{rider_id}",
+        self._lats_llm = LLMAgent(
+            agent_name=f"LATS_rider_{rider_id}",
             has_chat_history=False,
             llm_model=llm_model,
             online_track=False,
             json_format=True,
         )
-        # Initialize population
-        self._strategies = [
-            {"schedule": "EARLY_LONG", "order_strategy": "TAKE_VOLUME", "fitness": 0.5},
-            {"schedule": "NORMAL", "order_strategy": "TAKE_BALANCED", "fitness": 0.5},
-            {"schedule": "NORMAL_LATE", "order_strategy": "TAKE_HIGHEST_VALUE", "fitness": 0.5},
-            {"schedule": "SHORT", "order_strategy": "TAKE_NEAREST", "fitness": 0.5},
-            {"schedule": "EARLY_NORMAL", "order_strategy": "TAKE_BALANCED", "fitness": 0.5},
-        ]
-        self._evo_initialized = True
+        self._lats_initialized = True
 
-    def _select_strategy(self) -> Dict[str, Any]:
-        total = sum(s["fitness"] for s in self._strategies)
-        if total <= 0:
-            return random.choice(self._strategies)
-        r = random.random() * total
-        cumul = 0.0
-        for s in self._strategies:
-            cumul += s["fitness"]
-            if cumul >= r:
-                return s
-        return self._strategies[-1]
+    @staticmethod
+    def _ucb_score(node: Dict[str, Any], total_visits: int, c: float = 1.2) -> float:
+        visits = int(node.get("visits", 0))
+        if visits <= 0:
+            return 1e9 + float(node.get("prior", 0.0))
+        value = float(node.get("value_sum", 0.0)) / visits
+        explore = c * ((total_visits + 1) ** 0.5) / ((visits + 1) ** 0.5)
+        return value + explore + 0.1 * float(node.get("prior", 0.0))
 
-    def _evolve(self) -> None:
-        self._evo_generation += 1
-        self._strategies.sort(key=lambda s: s["fitness"], reverse=True)
-        elite = self._strategies[:3]
-        # Mutate top strategy
-        if elite:
-            mutant = dict(elite[0])
-            mutant["schedule"] = random.choice(_TIME_ACTIONS)
-            mutant["order_strategy"] = random.choice(_ORDER_ACTIONS[:-1])  # exclude SKIP
-            mutant["fitness"] = elite[0]["fitness"] * 0.8
-            self._strategies = elite + [mutant, dict(elite[-1])]
+    def _build_candidates(
+        self,
+        decision_name: str,
+        options: List[str],
+        context: Dict[str, Any],
+    ) -> List[Dict[str, Any]]:
+        prompt = (
+            f"You are a rider using Language Agent Tree Search for {decision_name}.\n"
+            f"Context={json.dumps(context, ensure_ascii=False)}\n"
+            f"WorldModel={self._lats_memory.get('world_model', '')}\n"
+            f"Notes={self._lats_memory.get('notes', [])[-3:]}\n"
+            f"Options={options}\n\n"
+            "Return JSON exactly as:\n"
+            "{\"candidates\": ["
+            "{\"action\": \"OPTION\", \"thought\": \"short reason\", \"prior\": 0.0-1.0}"
+            "]}.\n"
+            "Provide 3-5 diverse candidates and only use options from Options."
+        )
+        try:
+            resp = self._lats_llm.get_response(prompt, flag_debug_print=False)
+        except Exception:
+            resp = None
+        candidates: List[Dict[str, Any]] = []
+        if isinstance(resp, dict):
+            raw = resp.get("candidates", [])
+            if isinstance(raw, list):
+                for item in raw:
+                    if not isinstance(item, dict):
+                        continue
+                    action = str(item.get("action", "")).strip()
+                    if action not in options:
+                        continue
+                    try:
+                        prior = float(item.get("prior", 0.0))
+                    except Exception:
+                        prior = 0.0
+                    candidates.append({
+                        "action": action,
+                        "thought": str(item.get("thought", "")).strip(),
+                        "prior": max(0.0, min(1.0, prior)),
+                        "visits": 0,
+                        "value_sum": 0.0,
+                    })
+        if not candidates:
+            fallback = options[: min(3, len(options))]
+            for act in fallback:
+                candidates.append({
+                    "action": act,
+                    "thought": "fallback",
+                    "prior": 1.0 / max(1, len(fallback)),
+                    "visits": 0,
+                    "value_sum": 0.0,
+                })
+        # 去重
+        uniq: Dict[str, Dict[str, Any]] = {}
+        for node in candidates:
+            if node["action"] not in uniq:
+                uniq[node["action"]] = node
+        return list(uniq.values())
+
+    def _run_tree_search(
+        self,
+        decision_name: str,
+        options: List[str],
+        context: Dict[str, Any],
+        budget: int,
+    ) -> str:
+        nodes = self._build_candidates(decision_name, options, context)
+        budget = max(4, budget)
+        for _ in range(budget):
+            total_visits = sum(int(n.get("visits", 0)) for n in nodes)
+            node = max(nodes, key=lambda n: self._ucb_score(n, total_visits))
+            sim_prompt = (
+                f"You are a short-horizon simulator for rider {decision_name}.\n"
+                f"CandidateAction={node['action']}\n"
+                f"CandidateThought={node.get('thought', '')}\n"
+                f"Context={json.dumps(context, ensure_ascii=False)}\n"
+                f"WorldModel={self._lats_memory.get('world_model', '')}\n\n"
+                "Return JSON:\n"
+                "{\"expected_income\": 0.0-1.0, \"stability\": 0.0-1.0, "
+                "\"risk\": 0.0-1.0, \"note\": \"one short lesson\"}."
+            )
+            try:
+                sim = self._lats_llm.get_response(sim_prompt, flag_debug_print=False)
+            except Exception:
+                sim = None
+            if not isinstance(sim, dict):
+                continue
+            try:
+                income = float(sim.get("expected_income", 0.5))
+            except Exception:
+                income = 0.5
+            try:
+                stability = float(sim.get("stability", 0.5))
+            except Exception:
+                stability = 0.5
+            try:
+                risk = float(sim.get("risk", 0.5))
+            except Exception:
+                risk = 0.5
+            income = max(0.0, min(1.0, income))
+            stability = max(0.0, min(1.0, stability))
+            risk = max(0.0, min(1.0, risk))
+            reward = max(0.0, min(1.0, 0.6 * income + 0.4 * stability - 0.35 * risk))
+            node["visits"] = int(node.get("visits", 0)) + 1
+            node["value_sum"] = float(node.get("value_sum", 0.0)) + reward
+            note = str(sim.get("note", "")).strip()
+            if note:
+                self._lats_memory["notes"].append(note)
+                self._lats_memory["notes"] = self._lats_memory["notes"][-8:]
+
+        def _mean(n: Dict[str, Any]) -> float:
+            v = int(n.get("visits", 0))
+            if v <= 0:
+                return 0.0
+            return float(n.get("value_sum", 0.0)) / v
+
+        best = max(nodes, key=_mean)
+        action = str(best.get("action", options[0] if options else ""))
+        if action not in options and options:
+            return options[0]
+        return action
 
     def decide_time(self, runner_step: int, info: Dict[str, Any]) -> Tuple[int, int]:
-        self._ensure_evo_init()
-        # Update fitness based on income change
+        self._ensure_lats_init()
+
         cur_money = float(getattr(self, "money", 0))
-        if self._current_strategy and cur_money != self._prev_money_evo:
-            delta = cur_money - self._prev_money_evo
-            reward = min(1.0, max(0.0, 0.5 + delta / 100.0))
-            self._current_strategy["fitness"] = (
-                0.3 * reward + 0.7 * self._current_strategy["fitness"]
-            )
-        self._prev_money_evo = cur_money
+        delta = cur_money - self._prev_money_lats
+        self._prev_money_lats = cur_money
 
-        # Evolve every 3 days
-        if runner_step > 0 and self._evo_generation < runner_step // getattr(self, "one_day", 480) // 3:
-            self._evolve()
+        context = {
+            "runner_step": runner_step,
+            "current_schedule": [
+                int(info.get("before_go_work_time", 8)),
+                int(info.get("before_get_off_work_time", 18)),
+            ],
+            "ranks": {
+                "order_rank": int(info.get("order_rank", 0)),
+                "money_rank": int(info.get("money_rank", 0)),
+                "dis_rank": int(info.get("dis_rank", 0)),
+            },
+            "rider_num": int(info.get("rider_num", 100)),
+            "income_delta": float(delta),
+        }
 
-        self._current_strategy = self._select_strategy()
-        sched = self._current_strategy.get("schedule", "NORMAL")
-        return _TIME_MAP.get(sched, (8, 18))
+        schedule_action = self._run_tree_search(
+            decision_name="work_schedule",
+            options=list(_TIME_MAP.keys()),
+            context=context,
+            budget=6,
+        )
+        if schedule_action in _TIME_MAP:
+            return _TIME_MAP[schedule_action]
+        return 8, 18
 
     def take_order(self, runner_step: int, info: Dict[str, Any]) -> List[int]:
-        self._ensure_evo_init()
+        self._ensure_lats_init()
         raw_items, now_loc, max_take = _parse_order_list(info)
         if not raw_items:
             return []
-        strategy = (self._current_strategy or {}).get("order_strategy", "TAKE_BALANCED")
+
+        # 仅将前若干订单摘要放入提示词，避免上下文过大
+        order_summary: List[Dict[str, Any]] = []
+        for item in raw_items[:10]:
+            oid = 0
+            data: Dict[str, Any] = {}
+            if isinstance(item, (list, tuple)) and len(item) >= 2:
+                oid = int(item[0]) if isinstance(item[0], int) else 0
+                data = item[1] if isinstance(item[1], dict) else {}
+            order_summary.append({
+                "order_id": oid,
+                "money": data.get("money", 0),
+                "pickup": data.get("pickup_location", (0, 0)),
+                "delivery": data.get("delivery_location", (0, 0)),
+            })
+
+        context = {
+            "runner_step": runner_step,
+            "location": now_loc,
+            "max_take": max_take,
+            "orders": order_summary,
+            "last_strategy": self._last_order_strategy_lats,
+        }
+        strategy = self._run_tree_search(
+            decision_name="order_selection",
+            options=_ORDER_ACTIONS,
+            context=context,
+            budget=6,
+        )
         if strategy == "SKIP":
             return []
+        if strategy not in _ORDER_ACTIONS:
+            strategy = "TAKE_BALANCED"
+        self._last_order_strategy_lats = strategy
         return RiderLLMAgent._resolve_orders(strategy, raw_items, now_loc, max_take)
 
 

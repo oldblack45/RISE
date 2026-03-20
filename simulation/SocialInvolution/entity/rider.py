@@ -7,7 +7,13 @@ sys.path.append(os.path.join(current_dir, '../../../'))
 
 from models.algorithm.utilityCalMethods.individual_cal import IndividualCal
 from models.agents.repast_agent import Agent
-from models.agents.SociologyAgent import RiderLLMAgent
+from models.agents.SociologyAgent import (
+    RiderGreedyHeuristic,
+    RiderHypotheticalMinds,
+    RiderLATSAgent,
+    RiderLLMAgent,
+    RiderReActAgent,
+)
 from models.env.map.city_with_islands.read_map import AStarPlanner
 from simulation.SocialInvolution.algorithm.order_sequence import order_sequence_cal
 from repast4py.space import DiscretePoint as dpt
@@ -18,6 +24,7 @@ class Rider(Agent,RiderLLMAgent):
     def __init__(self, id, rank, t, pt, max_orders, one_day, step_move_distance=30, role_param_dict = None, start_time=None):
         super().__init__(id, rank, t, pt)
         RiderLLMAgent.__init__(self,role_param_dict)
+        self._bind_decision_baseline(role_param_dict)
 
         # RiderLLMAgent.__init__(self)
         self.route = [] # 派单路线
@@ -54,6 +61,26 @@ class Rider(Agent,RiderLLMAgent):
         self.choose_order_step_interval = 15
         self.start_time = start_time
         self.write_info_init()
+
+    def _bind_decision_baseline(self, role_param_dict):
+        """根据 role_param_dict['baseline_type'] 绑定决策实现。"""
+        cfg = role_param_dict or {}
+        baseline = str(cfg.get("baseline_type", "rise")).strip().lower()
+        baseline_map = {
+            "rise": RiderLLMAgent,
+            "react": RiderReActAgent,
+            "lats": RiderLATSAgent,
+            "hypothetical_minds": RiderHypotheticalMinds,
+            "hm": RiderHypotheticalMinds,
+            "greedy": RiderGreedyHeuristic,
+        }
+        mixin_cls = baseline_map.get(baseline, RiderLLMAgent)
+        if mixin_cls is RiderLLMAgent:
+            return
+
+        mixin_cls.__init__(self, cfg)
+        self.decide_time = mixin_cls.decide_time.__get__(self, Rider)
+        self.take_order = mixin_cls.take_order.__get__(self, Rider)
 
 
     def step(self, meituan, runner_step):

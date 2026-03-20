@@ -19,8 +19,8 @@ from diplomacy import Game
 
 from agents.rise_agent import RISEAgent
 from agents.diplomacy_baselines import (
-    EvoBaselineAgent,
     HypotheticalMindsBaselineAgent,
+    LATSBaselineAgent,
     ReActBaselineAgent,
     ReflexionBaselineAgent,
 )
@@ -31,7 +31,7 @@ AGGRESSIVE_ACTIONS = {"ATTACK", "SUPPORT_ATTACK"}
 # ---------------------------------------------------------------------------
 # Baseline personas and architectures -------------------------------------------------
 
-BASELINE_TYPES = ["ReAct", "Reflexion", "EvoAgent", "HypotheticalMinds"]
+BASELINE_TYPES = ["ReAct", "Reflexion", "LATS", "HypotheticalMinds"]
 PLAYERS = ["England", "France", "Germany", "Italy", "Austria", "Russia", "Turkey"]
 
 
@@ -270,7 +270,7 @@ class DiplomacyTournamentRunner:
             elif baseline_type == "HypotheticalMinds":
                 agents[player] = HypotheticalMindsBaselineAgent(player, llm_model=self.config.llm_model)
             else:
-                agents[player] = EvoBaselineAgent(player, llm_model=self.config.llm_model)
+                agents[player] = LATSBaselineAgent(player, llm_model=self.config.llm_model)
         return agents
 
     async def _gather_orders(

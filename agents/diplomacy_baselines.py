@@ -284,48 +284,173 @@ class ReflexionBaselineAgent(_LLMBaselineBase):
             self.memory.reflections.append(reflection)
 
 
-class EvoBaselineAgent(_LLMBaselineBase):
-    """EvoAgent：持续世界模型（叙事摘要）+ Updater + Planner。"""
+class LATSBaselineAgent(_LLMBaselineBase):
+    """LATS：Language Agent Tree Search（推理+行动+规划统一）。"""
 
     def __init__(self, name: str, llm_model: Optional[str] = None):
-        super().__init__(name=name, baseline_type="EvoAgent", llm_model=llm_model)
+        super().__init__(name=name, baseline_type="LATS", llm_model=llm_model)
         self.memory.world_model_state = (
-            f"It is 1901. I am {name}. My goal is to maximize my national interest and survive. "
-            "I will maintain a concise global situation summary and update it each round."
+            f"I am {name} in Diplomacy. Keep a concise strategic world model, "
+            "run language-guided tree search before acting, and optimize survival + SC growth."
         )
+        self._planner_notes: List[str] = []
+
+    def _extract_candidates(self, result: Any) -> List[Dict[str, Any]]:
+        if not isinstance(result, dict):
+            return []
+        raw = result.get("candidates", [])
+        if not isinstance(raw, list):
+            return []
+        out: List[Dict[str, Any]] = []
+        for item in raw:
+            if not isinstance(item, dict):
+                continue
+            action = _coerce_action(item.get("action"))
+            prior = item.get("prior", 0.0)
+            try:
+                prior_f = float(prior)
+            except Exception:
+                prior_f = 0.0
+            out.append({
+                "action": action,
+                "thought": str(item.get("thought", "")).strip(),
+                "prior": max(0.0, min(1.0, prior_f)),
+                "visits": 0,
+                "value_sum": 0.0,
+                "last_rollout": "",
+            })
+        # 去重：保留首个出现动作
+        uniq: Dict[str, Dict[str, Any]] = {}
+        for node in out:
+            act = node["action"]
+            if act not in uniq:
+                uniq[act] = node
+        return list(uniq.values())
+
+    def _ucb_score(self, node: Dict[str, Any], total_visits: int, c: float = 1.2) -> float:
+        visits = max(0, int(node.get("visits", 0)))
+        if visits == 0:
+            return 1e9 + float(node.get("prior", 0.0))
+        value = float(node.get("value_sum", 0.0)) / visits
+        explore = c * ((total_visits + 1) ** 0.5) / ((visits + 1) ** 0.5)
+        return value + explore + 0.15 * float(node.get("prior", 0.0))
 
     def _propose_orders_sync(self, game_view: Dict[str, Any]) -> str:
         state = game_view.get("state") or {}
         tension = float(game_view.get("tension", 0.5))
+        last_orders = game_view.get("last_orders") or {}
+        last_feedback = game_view.get("last_feedback") or {}
 
-        system_template = (
-            "You are a Diplomacy baseline agent with a continual world model (EvoAgent).\n"
-            "You do NOT read raw logs; you rely on the world model summary."
+        notes = (self._planner_notes or [])[-3:]
+        notes_text = "\n".join([f"- {x}" for x in notes]) if notes else "- (none)"
+        notes_text = _escape_curly(notes_text)
+
+        # Step 1: Expand - 使用大模型生成搜索根节点候选动作
+        expand_system = (
+            "You are a Diplomacy LATS planner. "
+            "Generate high-quality candidate actions for root expansion."
         )
-
-        user_template = (
-            "[World Model State]\n"
-            f"{_escape_curly(self.memory.world_model_state)}\n\n"
-            "[Local Snapshot]\n"
-            f"{_safe_compact_state(state, self.name)}\n"
-            f"Tension={tension:.2f}\n\n"
-            "Plan this turn and output JSON: {{\"abstract_action\":..., \"plan\":...}}. "
-            f"abstract_action must be one of: {ACTIONS}."
+        expand_user = (
+            f"Power={self.name}\n"
+            f"WorldModel={_escape_curly(self.memory.world_model_state)}\n"
+            f"Snapshot={_safe_compact_state(state, self.name)}\n"
+            f"Tension={tension:.2f}\n"
+            f"LastOrders={_dump(last_orders)}\n"
+            f"LastFeedback={_dump(last_feedback)}\n"
+            f"PlannerNotes={notes_text}\n\n"
+            f"Action set: {ACTIONS}\n"
+            "Return JSON with exactly this schema:\n"
+            "{\"candidates\": ["
+            "{\"action\": \"...\", \"thought\": \"short tactical intent\", \"prior\": 0.0-1.0}"
+            "]}.\n"
+            "Provide 3-5 diverse candidates only from action set."
         )
-
-        result = self._llm.get_response(
-            user_template=user_template,
-            new_system_template=system_template,
+        expand_result = self._llm.get_response(
+            user_template=expand_user,
+            new_system_template=expand_system,
             input_param_dict={},
             is_first_call=False,
             flag_debug_print=False,
         )
-        if isinstance(result, Exception):
-            raise result
+        if isinstance(expand_result, Exception):
+            raise expand_result
 
-        action = _coerce_action(result.get("abstract_action") if isinstance(result, dict) else None)
+        nodes = self._extract_candidates(expand_result)
+        if not nodes:
+            nodes = [
+                {"action": "HOLD", "thought": "fallback", "prior": 0.34, "visits": 0, "value_sum": 0.0, "last_rollout": ""},
+                {"action": "MOVE", "thought": "fallback", "prior": 0.33, "visits": 0, "value_sum": 0.0, "last_rollout": ""},
+                {"action": "SUPPORT_DEFEND", "thought": "fallback", "prior": 0.33, "visits": 0, "value_sum": 0.0, "last_rollout": ""},
+            ]
+
+        # Step 2: Simulate + Backprop - LATS/MCTS 搜索
+        simulation_budget = max(6, len(nodes) * 2)
+        for _ in range(simulation_budget):
+            total_visits = sum(int(n.get("visits", 0)) for n in nodes)
+            node = max(nodes, key=lambda n: self._ucb_score(n, total_visits))
+
+            sim_system = (
+                "You are a Diplomacy transition/value model for LATS. "
+                "Simulate one-step consequences and score utility."
+            )
+            sim_user = (
+                f"Power={self.name}\n"
+                f"CandidateAction={node['action']}\n"
+                f"Intent={_escape_curly(str(node.get('thought', '')))}\n"
+                f"WorldModel={_escape_curly(self.memory.world_model_state)}\n"
+                f"Snapshot={_safe_compact_state(state, self.name)}\n"
+                f"Tension={tension:.2f}\n"
+                f"LastOrders={_dump(last_orders)}\n"
+                f"LastFeedback={_dump(last_feedback)}\n\n"
+                "Return JSON with keys:\n"
+                "{\"opponent_response\": \"...\", \"next_state_summary\": \"...\", "
+                "\"immediate_value\": 0.0-1.0, \"long_term_value\": 0.0-1.0, \"risk\": 0.0-1.0}."
+            )
+            sim_result = self._llm.get_response(
+                user_template=sim_user,
+                new_system_template=sim_system,
+                input_param_dict={},
+                is_first_call=False,
+                flag_debug_print=False,
+            )
+            if isinstance(sim_result, Exception):
+                raise sim_result
+
+            if isinstance(sim_result, dict):
+                try:
+                    immediate = float(sim_result.get("immediate_value", 0.5))
+                except Exception:
+                    immediate = 0.5
+                try:
+                    long_term = float(sim_result.get("long_term_value", 0.5))
+                except Exception:
+                    long_term = 0.5
+                try:
+                    risk = float(sim_result.get("risk", 0.5))
+                except Exception:
+                    risk = 0.5
+                immediate = max(0.0, min(1.0, immediate))
+                long_term = max(0.0, min(1.0, long_term))
+                risk = max(0.0, min(1.0, risk))
+                reward = max(0.0, min(1.0, 0.55 * immediate + 0.45 * long_term - 0.35 * risk))
+                node["visits"] = int(node.get("visits", 0)) + 1
+                node["value_sum"] = float(node.get("value_sum", 0.0)) + reward
+                node["last_rollout"] = str(sim_result.get("next_state_summary", "")).strip()
+
+        # Step 3: Select best action by mean value
+        def _mean_value(n: Dict[str, Any]) -> float:
+            v = int(n.get("visits", 0))
+            if v <= 0:
+                return 0.0
+            return float(n.get("value_sum", 0.0)) / v
+
+        best = max(nodes, key=_mean_value)
+        action = _coerce_action(best.get("action"))
         self.last_order = action
         self.memory.last_actions.append(action)
+        rollout_state = str(best.get("last_rollout", "")).strip()
+        if rollout_state:
+            self.memory.world_model_state = rollout_state
         return action
 
     def post_round_update(self, game_view: Dict[str, Any], feedback_label: str, sc_delta: int) -> None:
@@ -343,29 +468,28 @@ class EvoBaselineAgent(_LLMBaselineBase):
             })
         except Exception:
             pass
+
         state = game_view.get("state") or {}
         last_orders = game_view.get("last_orders") or {}
         last_feedback = game_view.get("last_feedback") or {}
+        last_action = self.last_order
 
-        new_events = (
-            f"This round feedback for me: {feedback_label} (sc_delta={sc_delta}). "
-            f"Orders: {_dump(last_orders)}. Feedback: {_dump(last_feedback)}.\n"
-            f"Local snapshot: {_safe_compact_state(state, self.name)}"
+        reflect_system = "You are a LATS critic. Produce concise planning improvements for next round."
+        reflect_user = (
+            f"Power={self.name}\n"
+            f"LastAction={last_action}\n"
+            f"Outcome={feedback_label}, sc_delta={sc_delta}\n"
+            f"Snapshot={_safe_compact_state(state, self.name)}\n"
+            f"LastOrders={_dump(last_orders)}\n"
+            f"LastFeedback={_dump(last_feedback)}\n"
+            f"OldWorldModel={_escape_curly(self.memory.world_model_state)}\n\n"
+            "Return JSON with keys:\n"
+            "{\"planner_note\": \"one actionable lesson\", "
+            "\"world_model_state\": \"updated concise strategic state\"}."
         )
-
-        system_template = "You are a world-model updater. Keep the state concise, factual, and updated."
-        user_template = (
-            "Here is the old world model state:\n"
-            f"[Old State]\n{_escape_curly(self.memory.world_model_state)}\n\n"
-            "Here are the new events:\n"
-            f"[New Events]\n{new_events}\n\n"
-            "Update the world model: remove obsolete info, add new strategic situation. "
-            "Return JSON: {{\"world_model_state\": \"...\"}}."
-        )
-
         result = self._llm.get_response(
-            user_template=user_template,
-            new_system_template=system_template,
+            user_template=reflect_user,
+            new_system_template=reflect_system,
             input_param_dict={},
             is_first_call=False,
             flag_debug_print=False,
@@ -374,6 +498,10 @@ class EvoBaselineAgent(_LLMBaselineBase):
             raise result
 
         if isinstance(result, dict):
+            note = str(result.get("planner_note", "")).strip()
+            if note:
+                self._planner_notes.append(note)
+                self._planner_notes = self._planner_notes[-6:]
             updated = str(result.get("world_model_state", "")).strip()
             if updated:
                 self.memory.world_model_state = updated

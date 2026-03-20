@@ -31,10 +31,10 @@ sns.lineplot(data=persona_acc, x='Round', y='Prediction_Accuracy', hue='Target_P
 
 plt.xlabel('Game Rounds', fontsize=18, fontweight='bold')
 plt.ylabel('Prediction Accuracy', fontsize=18, fontweight='bold')
-plt.xticks(fontsize=14)
-plt.yticks(fontsize=14)
+plt.xticks(fontsize=16, fontweight='bold')
+plt.yticks(fontsize=16, fontweight='bold')
 plt.ylim(0, 1.05)
-plt.legend(loc='lower right', prop={'weight': 'bold', 'size': 14})
+plt.legend(loc='lower right', prop={'weight': 'bold', 'size': 16})
 plt.grid(True, linestyle='--', alpha=0.7)
 
 # Save the plot to a file
